@@ -8,9 +8,15 @@ interface BatchQueueProps {
   items: BatchItem[]
   onClearCompleted: () => void
   onClearAll: () => void
+  elevated?: boolean
 }
 
-export function BatchQueue({ items, onClearCompleted, onClearAll }: BatchQueueProps) {
+export function BatchQueue({
+  items,
+  onClearCompleted,
+  onClearAll,
+  elevated = false,
+}: BatchQueueProps) {
   if (items.length === 0) return null
 
   const completed = items.filter((i) => i.status === 'completed').length
@@ -20,16 +26,21 @@ export function BatchQueue({ items, onClearCompleted, onClearAll }: BatchQueuePr
   const progress = total > 0 ? ((completed + failed) / total) * 100 : 0
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 w-80 rounded-lg border border-border bg-card shadow-lg">
-      <div className="flex items-center justify-between border-b border-border px-3 py-2">
+    <div
+      className={cn(
+        'fixed inset-x-3 z-50 rounded-lg border border-border bg-card shadow-lg sm:inset-x-auto sm:bottom-4 sm:right-4 sm:w-80',
+        elevated ? 'bottom-24' : 'bottom-3',
+      )}
+    >
+      <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
         <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
           Batch Queue
         </span>
-        <div className="flex gap-1">
+        <div className="flex shrink-0 gap-1">
           {(completed > 0 || failed > 0) && (
             <button
               onClick={onClearCompleted}
-              className="rounded px-1.5 py-0.5 text-xs hover:bg-muted"
+              className="rounded px-2 py-1 text-xs hover:bg-muted sm:px-1.5 sm:py-0.5"
               title="Clear completed"
             >
               Clear done
@@ -37,8 +48,9 @@ export function BatchQueue({ items, onClearCompleted, onClearAll }: BatchQueuePr
           )}
           <button
             onClick={onClearAll}
-            className="rounded px-1.5 py-0.5 text-xs hover:bg-muted"
+            className="flex h-7 w-7 items-center justify-center rounded text-xs hover:bg-muted sm:h-auto sm:w-auto sm:px-1.5 sm:py-0.5"
             title="Clear all"
+            aria-label="Clear all"
           >
             <Trash2 className="h-3 w-3" />
           </button>
@@ -63,13 +75,13 @@ export function BatchQueue({ items, onClearCompleted, onClearAll }: BatchQueuePr
         </div>
       </div>
 
-      <div className="max-h-48 overflow-y-auto border-t border-border">
+      <div className="max-h-48 overflow-y-auto border-t border-border sm:max-h-48">
         {items.map((item) => {
           const hint = item.error || item.message
           return (
             <div
               key={item.id}
-              className="flex items-center gap-2 px-3 py-1.5 text-xs"
+              className="flex items-start gap-2 px-3 py-2 text-xs sm:items-center sm:py-1.5"
               title={hint}
             >
               {item.status === 'pending' && (
@@ -91,7 +103,7 @@ export function BatchQueue({ items, onClearCompleted, onClearAll }: BatchQueuePr
               {item.error ? (
                 <span className="shrink-0 text-destructive">{item.error}</span>
               ) : item.message ? (
-                <span className="shrink-0 max-w-[12rem] truncate text-muted-foreground">
+                <span className="max-w-[9rem] shrink-0 truncate text-muted-foreground sm:max-w-[12rem]">
                   {item.message}
                 </span>
               ) : null}

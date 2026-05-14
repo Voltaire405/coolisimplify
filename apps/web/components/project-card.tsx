@@ -130,32 +130,32 @@ export function ProjectCard({
     <div className="rounded-lg border border-border bg-card">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/50"
+        className="flex w-full items-start gap-2 px-3 py-3 text-left transition-colors hover:bg-muted/50 sm:items-center sm:gap-3 sm:px-4"
         aria-expanded={expanded}
       >
         {expanded ? (
-          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground sm:mt-0" />
         ) : (
-          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground sm:mt-0" />
         )}
-        <Folder className="h-4 w-4 text-muted-foreground" />
+        <Folder className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground sm:mt-0" />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-2">
             <span className="truncate text-sm font-semibold">{project.name}</span>
             {project.description && (
-              <span className="hidden truncate text-xs text-muted-foreground sm:inline">
+              <span className="truncate text-xs leading-5 text-muted-foreground sm:inline">
                 {project.description}
               </span>
             )}
           </div>
         </div>
         {expanded && projectResources.total > 0 && (
-          <div className="flex items-center gap-3 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1">
+          <div className="flex shrink-0 flex-col items-end gap-1 text-xs text-muted-foreground sm:flex-row sm:items-center sm:gap-3">
+            <span className="flex items-center gap-1 leading-none">
               <Layers className="h-3 w-3" />
               {projectResources.total}
             </span>
-            <span className="flex items-center gap-1">
+            <span className="flex items-center gap-1 leading-none">
               <StatusIndicator active={projectResources.active > 0} />
               {projectResources.active}/{projectResources.total}
             </span>
@@ -164,7 +164,7 @@ export function ProjectCard({
       </button>
 
       {expanded && (
-        <div className="border-t border-border px-4 pb-4 pt-2">
+        <div className="border-t border-border px-3 pb-3 pt-2 sm:px-4 sm:pb-4">
           {groups.length === 0 ? (
             <p className="py-4 text-center text-sm text-muted-foreground">
               No resources in this project.
@@ -173,7 +173,7 @@ export function ProjectCard({
             <div className="space-y-4">
               {groups.map((group) => (
                 <div key={group.name}>
-                  <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  <h4 className="mb-2 text-xs font-medium uppercase text-muted-foreground sm:tracking-wider">
                     {group.name}
                   </h4>
                   <div className="space-y-2">

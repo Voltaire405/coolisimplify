@@ -11,8 +11,9 @@ export function ConfigButton() {
     <>
       <button
         onClick={() => setOpen(true)}
-        className="fixed left-4 top-4 z-40 flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card text-foreground shadow-sm transition-colors hover:bg-muted"
+        className="fixed left-3 top-3 z-40 flex h-10 w-10 items-center justify-center rounded-md border border-border bg-card text-foreground shadow-sm transition-colors hover:bg-muted sm:left-4 sm:top-4 sm:h-9 sm:w-9"
         title="Settings"
+        aria-label="Open settings"
       >
         <Settings className="h-4 w-4" />
       </button>

@@ -35,12 +35,14 @@ export function ContextMenu({ children, items, onSelect }: ContextMenuProps) {
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen(!open)}
-        className="rounded-md p-1 hover:bg-muted"
+        className="flex h-9 w-9 items-center justify-center rounded-md hover:bg-muted sm:h-auto sm:w-auto sm:p-1"
+        aria-haspopup="menu"
+        aria-expanded={open}
       >
         {children}
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-30 mt-1 w-40 rounded-md border border-border bg-popover shadow-sm">
+        <div className="absolute right-0 top-full z-30 mt-1 w-44 rounded-md border border-border bg-popover shadow-sm">
           <div className="py-1">
             {items.map((item) => (
               <button
@@ -51,7 +53,7 @@ export function ContextMenu({ children, items, onSelect }: ContextMenuProps) {
                   setOpen(false)
                 }}
                 className={cn(
-                  'block w-full px-3 py-1.5 text-left text-sm transition-colors',
+                  'block w-full px-3 py-2 text-left text-sm transition-colors sm:py-1.5',
                   item.dangerous
                     ? 'text-destructive hover:bg-destructive/5'
                     : 'text-popover-foreground hover:bg-muted',

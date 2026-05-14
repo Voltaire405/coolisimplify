@@ -69,58 +69,64 @@ export function ResourceRow({
   ]
 
   return (
-    <LedCard active={active} className="py-2.5">
-      <div className="flex items-center gap-3">
-        {selected && selectionIndex ? (
-          <button
-            type="button"
-            onClick={onToggleSelect}
-            disabled={busy}
-            aria-label={`${name} selected as ${selectionIndex}; click to remove from queue`}
-            title={`Position ${selectionIndex} in batch queue`}
-            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-foreground text-[10px] font-semibold leading-none text-background tabular-nums disabled:opacity-40"
-          >
-            {selectionIndex}
-          </button>
-        ) : (
-          <input
-            type="checkbox"
-            checked={selected}
-            onChange={onToggleSelect}
-            aria-label={`Select ${name}`}
-            disabled={busy}
-            className="h-4 w-4 rounded border-border disabled:opacity-40"
-          />
-        )}
-        <StatusIndicator active={active} />
-        <Icon className="h-4 w-4 text-muted-foreground" />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-medium">{name}</span>
-            <span className="shrink-0 rounded border border-border px-1 py-0 text-[10px] uppercase tracking-wider text-muted-foreground">
-              {type}
-            </span>
-            {busy && (
-              <span
-                role="status"
-                aria-live="polite"
-                className="inline-flex shrink-0 items-center gap-1 rounded-full border border-foreground/40 bg-foreground/5 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-foreground"
-              >
-                <Loader2 className="h-2.5 w-2.5 animate-spin" />
-                {busyAction ? ACTION_LABEL[busyAction] : 'queued'}
+    <LedCard active={active} className="px-3 py-3 sm:px-4 sm:py-2.5">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+        <div className="flex min-w-0 items-start gap-2 sm:flex-1 sm:items-center sm:gap-3">
+          {selected && selectionIndex ? (
+            <button
+              type="button"
+              onClick={onToggleSelect}
+              disabled={busy}
+              aria-label={`${name} selected as ${selectionIndex}; click to remove from queue`}
+              title={`Position ${selectionIndex} in batch queue`}
+              className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-foreground text-[10px] font-semibold leading-none text-background tabular-nums disabled:opacity-40 sm:mt-0 sm:h-5 sm:w-5"
+            >
+              {selectionIndex}
+            </button>
+          ) : (
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={onToggleSelect}
+              aria-label={`Select ${name}`}
+              disabled={busy}
+              className="mt-1 h-5 w-5 shrink-0 rounded border-border disabled:opacity-40 sm:mt-0 sm:h-4 sm:w-4"
+            />
+          )}
+          <StatusIndicator active={active} className="mt-2 shrink-0 sm:mt-0" />
+          <Icon className="mt-1 h-4 w-4 shrink-0 text-muted-foreground sm:mt-0" />
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
+              <span className="min-w-0 max-w-full truncate text-sm font-medium">
+                {name}
               </span>
+              <span className="shrink-0 rounded border border-border px-1 py-0 text-[10px] uppercase tracking-wider text-muted-foreground">
+                {type}
+              </span>
+              {busy && (
+                <span
+                  role="status"
+                  aria-live="polite"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full border border-foreground/40 bg-foreground/5 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-foreground"
+                >
+                  <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                  {busyAction ? ACTION_LABEL[busyAction] : 'queued'}
+                </span>
+              )}
+            </div>
+            {domain && (
+              <p className="truncate text-xs leading-5 text-muted-foreground">
+                {domain}
+              </p>
             )}
           </div>
-          {domain && (
-            <p className="truncate text-xs text-muted-foreground">{domain}</p>
-          )}
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="ml-8 flex items-center justify-end gap-1 sm:ml-0">
           <button
             onClick={() => onBatchAdd('restart')}
             disabled={busy}
-            className="rounded-md p-1.5 text-muted-foreground hover:bg-muted disabled:opacity-30"
+            className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted disabled:opacity-30 sm:h-auto sm:w-auto sm:p-1.5"
             aria-label="Queue redeploy"
             title={busy ? 'Request in progress' : 'Queue redeploy'}
           >
@@ -129,7 +135,7 @@ export function ResourceRow({
           <button
             onClick={() => onAction(active ? 'stop' : 'start')}
             disabled={busy}
-            className="rounded-md p-1.5 text-muted-foreground hover:bg-muted disabled:opacity-50"
+            className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted disabled:opacity-50 sm:h-auto sm:w-auto sm:p-1.5"
             aria-label={busy ? 'Working' : active ? 'Stop' : 'Start'}
             title={busy ? 'Request in progress' : active ? 'Stop' : 'Start'}
           >

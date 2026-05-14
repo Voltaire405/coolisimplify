@@ -68,17 +68,18 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-end justify-center p-3 sm:items-center sm:p-4">
       <div
         className="absolute inset-0 bg-black/20 backdrop-blur-sm"
         onClick={() => onOpenChange(false)}
       />
-      <div className="relative z-10 w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-sm">
+      <div className="relative z-10 max-h-[calc(100dvh-1.5rem)] w-full overflow-y-auto rounded-lg border border-border bg-card p-4 shadow-sm sm:max-w-md sm:p-6">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold tracking-tight">Settings</h2>
           <button
             onClick={() => onOpenChange(false)}
-            className="rounded-md p-1 hover:bg-muted"
+            className="flex h-9 w-9 items-center justify-center rounded-md hover:bg-muted sm:h-auto sm:w-auto sm:p-1"
+            aria-label="Close settings"
           >
             <X className="h-4 w-4" />
           </button>
@@ -94,7 +95,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               placeholder="https://coolify.example.com"
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring"
+              className="w-full rounded-md border border-input bg-background px-3 py-2.5 text-sm outline-none focus:ring-1 focus:ring-ring sm:py-2"
             />
           </div>
 
@@ -107,7 +108,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               value={token}
               onChange={(e) => setToken(e.target.value)}
               placeholder="Your Coolify API token"
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring"
+              className="w-full rounded-md border border-input bg-background px-3 py-2.5 text-sm outline-none focus:ring-1 focus:ring-ring sm:py-2"
             />
           </div>
 
@@ -123,11 +124,11 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             </div>
           )}
 
-          <div className="flex gap-2 pt-2">
+          <div className="flex flex-col gap-2 pt-2 sm:flex-row">
             <button
               onClick={handleTest}
               disabled={testing || !url || !token}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50"
+              className="inline-flex h-10 items-center justify-center gap-1.5 rounded-md border border-border px-3 text-sm font-medium hover:bg-muted disabled:opacity-50 sm:h-auto sm:py-2"
             >
               <TestTube className="h-3.5 w-3.5" />
               {testing ? 'Testing...' : 'Test Connection'}
@@ -135,7 +136,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             <button
               onClick={handleSave}
               disabled={!url || !token}
-              className="inline-flex flex-1 items-center justify-center rounded-md border border-black bg-black px-3 py-2 text-sm font-medium text-white hover:bg-black/80 disabled:opacity-50"
+              className="inline-flex h-10 flex-1 items-center justify-center rounded-md border border-black bg-black px-3 text-sm font-medium text-white hover:bg-black/80 disabled:opacity-50 sm:h-auto sm:py-2"
             >
               Save
             </button>
@@ -144,7 +145,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
           {(coolifyUrl || coolifyToken) && (
             <button
               onClick={handleClear}
-              className="flex w-full items-center justify-center gap-1.5 rounded-md border border-destructive/20 px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/5"
+              className="flex h-10 w-full items-center justify-center gap-1.5 rounded-md border border-destructive/20 px-3 text-sm font-medium text-destructive hover:bg-destructive/5 sm:h-auto sm:py-2"
             >
               <Trash2 className="h-3.5 w-3.5" />
               Clear Configuration

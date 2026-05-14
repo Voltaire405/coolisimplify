@@ -415,32 +415,34 @@ export default function DashboardPage() {
       ) : (
         <>
           <div className="border-b border-border">
-            <div className="mx-auto max-w-5xl px-4 py-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
+            <div className="mx-auto max-w-5xl px-3 py-3 pl-14 sm:px-4 sm:py-4 sm:pl-16">
+              <div className="flex items-start justify-between gap-3 sm:items-center">
+                <div className="flex min-w-0 items-start gap-3 sm:items-center">
                   <Image
                     src="/logo.png"
                     alt="Coolisimplify"
                     width={32}
                     height={32}
                     priority
-                    className="rounded"
+                    className="mt-0.5 shrink-0 rounded sm:mt-0"
                   />
-                  <div>
-                    <h1 className="text-lg font-semibold tracking-tight">Coolisimplify</h1>
-                    <p className="text-xs text-muted-foreground">
+                  <div className="min-w-0">
+                    <h1 className="truncate text-lg font-semibold tracking-tight">
+                      Coolisimplify
+                    </h1>
+                    <p className="text-xs leading-5 text-muted-foreground">
                       {projects.length} projects &middot; {applications.length} apps &middot;{' '}
                       {services.length} services &middot; {databases.length} databases
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex shrink-0 items-center gap-2">
                   {allLoading && (
                     <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                   )}
                   <button
                     onClick={handleRefreshAll}
-                    className="flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted"
+                    className="flex h-9 w-9 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted sm:h-7 sm:w-7"
                     title="Refresh now"
                     aria-label="Refresh now"
                   >
@@ -451,10 +453,10 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="mx-auto max-w-5xl px-4 py-6">
+          <div className="mx-auto max-w-5xl px-3 py-4 sm:px-4 sm:py-6">
             {projectsError && (
-              <div className="mb-4 flex items-center gap-2 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                <AlertCircle className="h-4 w-4" />
+              <div className="mb-4 flex items-start gap-2 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive sm:items-center">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 sm:mt-0" />
                 {projectsError}
               </div>
             )}
@@ -488,43 +490,43 @@ export default function DashboardPage() {
       )}
 
       {selected.size > 0 && (
-        <div className="fixed bottom-4 left-1/2 z-40 -translate-x-1/2">
-          <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 shadow-lg">
-            <span className="mr-2 text-xs font-medium text-muted-foreground">
+        <div className="fixed inset-x-3 bottom-3 z-40 sm:left-1/2 sm:right-auto sm:bottom-4 sm:-translate-x-1/2">
+          <div className="mx-auto flex w-full max-w-md flex-wrap items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 py-2 shadow-lg sm:w-auto sm:max-w-none sm:flex-nowrap sm:px-4">
+            <span className="w-full text-center text-xs font-medium text-muted-foreground sm:mr-2 sm:w-auto">
               {selected.size} selected
             </span>
             <button
               onClick={() => handleBatchAction('start')}
-              className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-muted"
+              className="flex h-9 flex-1 items-center justify-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-muted sm:h-auto sm:flex-none sm:py-1.5"
             >
               <Play className="h-3 w-3" />
               Start
             </button>
             <button
               onClick={() => handleBatchAction('stop')}
-              className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-muted"
+              className="flex h-9 flex-1 items-center justify-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-muted sm:h-auto sm:flex-none sm:py-1.5"
             >
               <Square className="h-3 w-3" />
               Stop
             </button>
             <button
               onClick={() => handleBatchAction('restart')}
-              className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-muted"
+              className="flex h-9 flex-1 items-center justify-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-muted sm:h-auto sm:flex-none sm:py-1.5"
             >
               <RotateCcw className="h-3 w-3" />
               Restart
             </button>
             <button
               onClick={() => handleBatchAction('restart')}
-              className="flex items-center gap-1 rounded-md border border-black bg-black px-2.5 py-1.5 text-xs font-medium text-white hover:bg-black/80 dark:border-white dark:bg-white dark:text-black dark:hover:bg-white/80"
+              className="flex h-9 flex-1 items-center justify-center gap-1 rounded-md border border-black bg-black px-2.5 text-xs font-medium text-white hover:bg-black/80 dark:border-white dark:bg-white dark:text-black dark:hover:bg-white/80 sm:h-auto sm:flex-none sm:py-1.5"
             >
               <Rocket className="h-3 w-3" />
               Deploy
             </button>
-            <div className="mx-1 h-4 w-px bg-border" />
+            <div className="hidden h-4 w-px bg-border sm:mx-1 sm:block" />
             <button
               onClick={() => setSelected(new Set())}
-              className="rounded-md p-1.5 text-muted-foreground hover:bg-muted"
+              className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted sm:h-auto sm:w-auto sm:p-1.5"
               aria-label="Clear selection"
             >
               <X className="h-3.5 w-3.5" />
@@ -537,23 +539,24 @@ export default function DashboardPage() {
         items={queue.items}
         onClearCompleted={queue.clearCompleted}
         onClearAll={queue.clearAll}
+        elevated={selected.size > 0}
       />
 
-      <div className="fixed right-4 top-4 z-50 flex flex-col gap-2">
+      <div className="fixed inset-x-3 top-16 z-50 flex flex-col gap-2 sm:left-auto sm:right-4 sm:top-4 sm:w-80">
         {toasts.map((toast) => (
           <div
             key={toast.id}
             className={cn(
-              'flex items-center gap-2 rounded-md border px-3 py-2 text-sm shadow-sm',
+              'flex items-start gap-2 rounded-md border px-3 py-2 text-sm shadow-sm sm:items-center',
               toast.type === 'error'
                 ? 'border-destructive/20 bg-destructive/5 text-destructive'
                 : 'border-black/10 bg-black/5 text-black dark:border-white/10 dark:bg-white/5 dark:text-white',
             )}
           >
             {toast.type === 'error' ? (
-              <AlertCircle className="h-3.5 w-3.5" />
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 sm:mt-0" />
             ) : (
-              <RotateCcw className="h-3.5 w-3.5" />
+              <RotateCcw className="mt-0.5 h-3.5 w-3.5 shrink-0 sm:mt-0" />
             )}
             {toast.message}
           </div>
