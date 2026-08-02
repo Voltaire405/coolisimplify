@@ -21,12 +21,14 @@ import {
   type DeleteOptions,
 } from '@/components/confirm-dialog'
 import { CloneDialog } from '@/components/clone-dialog'
-import type { CloneResult } from '@/lib/clone'
+import type { BatchCloneResultItem } from '@/lib/clone'
+import { isCloneable } from '@/lib/clone'
 import {
   Play,
   Square,
   RotateCcw,
   Rocket,
+  Copy,
   X,
   Loader2,
   AlertCircle,
@@ -247,6 +249,8 @@ export default function DashboardPage() {
   const [stopTarget, setStopTarget] = useState<StopTarget | null>(null)
   type CloneTarget = { uuid: string; type: ResourceType; name: string }
   const [cloneTarget, setCloneTarget] = useState<CloneTarget | null>(null)
+  type BatchCloneTarget = { type: ResourceType; sources: Array<{ uuid: string; name: string }> }
+  const [batchCloneTarget, setBatchCloneTarget] = useState<BatchCloneTarget | null>(null)
   const [refreshSignal, setRefreshSignal] = useState(0)
 
   const findName = useCallback(
@@ -495,14 +499,77 @@ export default function DashboardPage() {
     [deleteTarget, executeAction],
   )
 
+  // Batch clone: only allowed when all selected resources share a type and
+  // every one of them is cloneable.
+  const handleBatchClone = useCallback(() => {
+    const entries = Array.from(selected)
+    if (entries.length === 0) return
+    const first = findResource(entries[0]!)
+    const sources = entries
+      .map((id) => {
+        const { type, resource } = findResource(id)
+        if (type !== first.type) return null
+        if (!resource || !isCloneable(resource, type)) return null
+        return { uuid: resource.uuid, name: (resource as { name?: string }).name || 'Resource' }
+      })
+      .filter((s): s is { uuid: string; name: string } => s !== null)
+    if (sources.length === 0) return
+    setBatchCloneTarget({ type: first.type, sources })
+    setSelected(new Set())
+  }, [selected, findResource])
+
+  // Disabled reason for the batch clone button.
+  const batchCloneDisabledReason = useCallback((): string | undefined => {
+    if (selected.size === 0) return 'No resources selected'
+    const types = new Set<ResourceType>()
+    for (const id of selected) {
+      types.add(findResource(id).type)
+    }
+    if (types.size > 1) return 'Select resources of the same type'
+    const [type] = types
+    let eligible = 0
+    let skipped = 0
+    for (const id of selected) {
+      const { resource } = findResource(id)
+      if (resource && isCloneable(resource, type!)) eligible += 1
+      else skipped += 1
+    }
+    if (eligible === 0) return 'No selected resource can be cloned'
+    if (skipped > 0) {
+      return `Clone available for ${eligible} of ${selected.size} selected`
+    }
+    return undefined
+  }, [selected, findResource])
+
+
   const handleCloned = useCallback(
-    (type: ResourceType, result: CloneResult) => {
+    (type: ResourceType, results: BatchCloneResultItem[]) => {
       setCloneTarget(null)
+      setBatchCloneTarget(null)
+      const ok = results.filter((r) => !r.error)
+      const failed = results.filter((r) => r.error)
+      const totalEnvCopied = ok.reduce((acc, r) => acc + r.envCopied, 0)
+      const totalEnvSkipped = ok.reduce((acc, r) => acc + r.envSkipped, 0)
       const envPart =
-        result.envSkipped > 0
-          ? ` (${result.envCopied} env vars copied, ${result.envSkipped} skipped)`
-          : ` (${result.envCopied} env vars copied)`
-      addToast(`Clone ${type} created stopped${envPart}`, 'success')
+        totalEnvSkipped > 0
+          ? ` (${totalEnvCopied} env vars copied, ${totalEnvSkipped} skipped)`
+          : ok.length > 0
+            ? ` (${totalEnvCopied} env vars copied)`
+            : ''
+      if (ok.length > 0) {
+        addToast(
+          ok.length === 1
+            ? `Clone ${type} created stopped${envPart}`
+            : `Cloned ${ok.length} ${type}s stopped${envPart}`,
+          'success',
+        )
+      }
+      if (failed.length > 0) {
+        addToast(
+          `${failed.length} clone${failed.length > 1 ? 's' : ''} failed (${failed[0]?.error ?? 'unknown error'})`,
+          'error',
+        )
+      }
       setRefreshSignal((n) => n + 1)
       refetchByType(type)
     },
@@ -741,6 +808,15 @@ export default function DashboardPage() {
               <Rocket className="h-3 w-3" />
               Redeploy
             </button>
+            <button
+              onClick={handleBatchClone}
+              disabled={!!batchCloneDisabledReason()}
+              title={batchCloneDisabledReason() ?? 'Clone selected resources'}
+              className="flex h-9 flex-1 items-center justify-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-muted disabled:pointer-events-none disabled:opacity-40 sm:h-auto sm:flex-none sm:py-1.5"
+            >
+              <Copy className="h-3 w-3" />
+              Clone
+            </button>
             <div className="hidden h-4 w-px bg-border sm:mx-1 sm:block" />
             <button
               onClick={() => setSelected(new Set())}
@@ -783,13 +859,21 @@ export default function DashboardPage() {
         if (!resource) return null
         return (
           <CloneDialog
-            source={resource}
+            sources={[{ uuid: resource.uuid, name: (resource as { name?: string }).name || 'Resource' }]}
             sourceType={cloneTarget.type}
             onCancel={() => setCloneTarget(null)}
             onCloned={handleCloned}
           />
         )
       })()}
+      {batchCloneTarget && (
+        <CloneDialog
+          sources={batchCloneTarget.sources}
+          sourceType={batchCloneTarget.type}
+          onCancel={() => setBatchCloneTarget(null)}
+          onCloned={handleCloned}
+        />
+      )}
 
       <div className="fixed inset-x-3 top-16 z-50 flex flex-col gap-2 sm:left-auto sm:right-4 sm:top-4 sm:w-80">
         {toasts.map((toast) => (
