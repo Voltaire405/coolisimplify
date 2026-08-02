@@ -4,6 +4,7 @@
 node_modules
 .pnp
 .pnp.js
+.pnpm-store
 
 # Local env files
 .env
@@ -34,3 +35,6 @@ npm-debug.log*
 # Misc
 .DS_Store
 *.pem
+
+# Local agent preferences
+.commandcode
