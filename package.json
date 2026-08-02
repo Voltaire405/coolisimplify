@@ -8,7 +8,8 @@
     "lint": "turbo lint",
     "format": "turbo format",
     "typecheck": "turbo typecheck",
-    "check:clone-payload": "node --experimental-strip-types scripts/check-clone-payload.mjs"
+    "check:clone-payload": "node --experimental-strip-types scripts/check-clone-payload.mjs",
+    "check:clone-names": "node --experimental-strip-types scripts/check-clone-names.mjs"
   },
   "devDependencies": {
     "@workspace/eslint-config": "workspace:*",

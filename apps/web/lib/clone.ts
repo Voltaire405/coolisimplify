@@ -38,6 +38,58 @@ export interface CloneResult {
 }
 
 /**
+ * Resolve the requested name for a single clone without changing an available
+ * name. Once the requested name is taken, use the documented copy sequence:
+ * `name-copy`, `name-copy-1`, `name-copy-2`, ... .
+ */
+export function resolveCloneName(
+  requestedName: string,
+  existingNames: Iterable<string>,
+): string {
+  const base = requestedName.trim()
+  if (!base) throw new Error('Clone name cannot be empty.')
+
+  const taken = new Set(
+    Array.from(existingNames, (name) => name.trim()).filter(Boolean),
+  )
+  if (!taken.has(base)) return base
+
+  const copyBase = `${base}-copy`
+  if (!taken.has(copyBase)) return copyBase
+
+  let suffix = 1
+  let candidate = `${copyBase}-${suffix}`
+  while (taken.has(candidate)) {
+    suffix += 1
+    candidate = `${copyBase}-${suffix}`
+  }
+  return candidate
+}
+
+/**
+ * Read all resource names in a destination environment. Names are collected
+ * across applications, services, and databases because the dashboard treats
+ * them as one resource namespace within an environment.
+ */
+export async function listTargetResourceNames(
+  client: CoolifyClient,
+  environmentId: number,
+): Promise<Set<string>> {
+  const [applications, services, databases] = await Promise.all([
+    client.listApplications(),
+    client.listServices(),
+    client.listDatabases(),
+  ])
+
+  return new Set(
+    [...applications, ...services, ...databases]
+      .filter((resource) => resource.environment_id === environmentId)
+      .map((resource) => resource.name.trim())
+      .filter(Boolean),
+  )
+}
+
+/**
  * Whether a resource can be cloned from the dashboard.
  * - Applications: private GitHub repos (identified by a source/github-app id)
  *   and Dockerfile-based apps.
