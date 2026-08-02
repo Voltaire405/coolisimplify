@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import type { Resource } from '@/lib/types'
 import { isResourceActive, type ResourceType, type BatchAction } from '@/hooks/use-coolify'
+import { canRunAction } from '@/lib/resource-state'
 
 interface ResourceRowProps {
   resource: Resource
@@ -42,6 +43,16 @@ const ACTION_LABEL: Record<BatchAction | 'delete', string> = {
   delete: 'deleting',
 }
 
+// Reason shown in title/aria-label when an action is disabled because the
+// resource's current state does not allow it.
+function unavailableReason(action: string): string {
+  if (action === 'start') return 'Already running or transitioning'
+  if (action === 'stop') return 'Not running'
+  if (action === 'restart') return 'Only available while running or on error'
+  if (action === 'deploy') return 'Only available while running or on error'
+  return 'Not available in the current state'
+}
+
 export function ResourceRow({
   resource,
   type,
@@ -58,18 +69,42 @@ export function ResourceRow({
   const name = (resource as { name?: string }).name || 'Unnamed'
   const domain = (resource as { fqdn?: string | null }).fqdn || undefined
   const Icon = typeIcons[type]
+  const disabledReason = (action: BatchAction) =>
+    busy
+      ? 'Request in progress'
+      : !canRunAction(action, status)
+        ? unavailableReason(action)
+        : undefined
   const menuItems: Array<{
     label: string
     action: BatchAction | 'delete'
     disabled?: boolean
     dangerous?: boolean
   }> = [
-    { label: 'Start', action: 'start', disabled: busy || active },
-    { label: 'Stop', action: 'stop', disabled: busy || !active },
-    { label: 'Restart', action: 'restart', disabled: busy },
+    {
+      label: 'Start',
+      action: 'start',
+      disabled: busy || !canRunAction('start', status),
+    },
+    {
+      label: 'Stop',
+      action: 'stop',
+      disabled: busy || !canRunAction('stop', status),
+    },
+    {
+      label: 'Restart',
+      action: 'restart',
+      disabled: busy || !canRunAction('restart', status),
+    },
     // Databases have no deploy concept in the Coolify API.
     ...(type !== 'database'
-      ? [{ label: 'Redeploy', action: 'deploy' as const, disabled: busy }]
+      ? [
+          {
+            label: 'Redeploy',
+            action: 'deploy' as const,
+            disabled: busy || !canRunAction('deploy', status),
+          },
+        ]
       : []),
     { label: 'Delete', action: 'delete' as const, dangerous: true, disabled: busy },
   ]
@@ -132,13 +167,12 @@ export function ResourceRow({
           {type !== 'database' && (
             <button
               onClick={() => onBatchAdd('deploy')}
-              disabled={busy}
+              disabled={busy || !canRunAction('deploy', status)}
               className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted disabled:opacity-30 sm:h-auto sm:w-auto sm:p-1.5"
-              aria-label="Queue redeploy"
+              aria-label={disabledReason('deploy') ?? 'Queue redeploy'}
               title={
-                busy
-                  ? 'Request in progress'
-                  : 'Queue redeploy (rolling update if possible)'
+                disabledReason('deploy') ??
+                'Queue redeploy (rolling update if possible)'
               }
             >
               <Rocket className="h-3.5 w-3.5" />
@@ -146,19 +180,44 @@ export function ResourceRow({
           )}
           <button
             onClick={() => onBatchAdd('restart')}
-            disabled={busy}
+            disabled={busy || !canRunAction('restart', status)}
             className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted disabled:opacity-30 sm:h-auto sm:w-auto sm:p-1.5"
-            aria-label="Queue restart"
-            title={busy ? 'Request in progress' : 'Queue restart (no rebuild)'}
+            aria-label={disabledReason('restart') ?? 'Queue restart'}
+            title={disabledReason('restart') ?? 'Queue restart (no rebuild)'}
           >
             <RotateCcw className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={() => onAction(active ? 'stop' : 'start')}
-            disabled={busy}
+            disabled={
+              busy ||
+              (active
+                ? !canRunAction('stop', status)
+                : !canRunAction('start', status))
+            }
             className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted disabled:opacity-50 sm:h-auto sm:w-auto sm:p-1.5"
-            aria-label={busy ? 'Working' : active ? 'Stop' : 'Start'}
-            title={busy ? 'Request in progress' : active ? 'Stop' : 'Start'}
+            aria-label={
+              busy
+                ? 'Working'
+                : active
+                  ? canRunAction('stop', status)
+                    ? 'Stop'
+                    : unavailableReason('stop')
+                  : canRunAction('start', status)
+                    ? 'Start'
+                    : unavailableReason('start')
+            }
+            title={
+              busy
+                ? 'Request in progress'
+                : active
+                  ? canRunAction('stop', status)
+                    ? 'Stop'
+                    : unavailableReason('stop')
+                  : canRunAction('start', status)
+                    ? 'Start'
+                    : unavailableReason('start')
+            }
           >
             {busy ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
