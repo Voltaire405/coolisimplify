@@ -32,6 +32,7 @@ import {
 } from 'lucide-react'
 import type { ResourceType, BatchAction } from '@/hooks/use-coolify'
 import { cn } from '@workspace/ui/lib/utils'
+import { canRunAction } from '@/lib/resource-state'
 
 interface Toast {
   id: string
@@ -252,6 +253,45 @@ export default function DashboardPage() {
     [applications, services, databases],
   )
 
+  // Resolve a `type:uuid` selection id back to the resource it refers to, so
+  // batch logic can inspect the resource's real status before acting.
+  const findResource = useCallback(
+    (id: string) => {
+      const [type, uuid] = id.split(':') as [ResourceType, string]
+      const list =
+        type === 'application'
+          ? applications
+          : type === 'service'
+            ? services
+            : databases
+      return { type, resource: list.find((r) => r.uuid === uuid) }
+    },
+    [applications, services, databases],
+  )
+
+  const batchDisabledReason = useCallback(
+    (action: BatchAction): string | undefined => {
+      if (selected.size === 0) return 'No resources selected'
+      let eligible = 0
+      let skipped = 0
+      for (const id of selected) {
+        const { type, resource } = findResource(id)
+        if (type === 'database' && action === 'deploy') continue
+        if (resource && canRunAction(action, (resource as { status?: string }).status)) {
+          eligible += 1
+        } else {
+          skipped += 1
+        }
+      }
+      if (eligible > 0) return undefined
+      if (skipped === 0) return 'No resources selected'
+      return action === 'deploy'
+        ? 'No selected resource can be redeployed (databases and stopped resources are skipped)'
+        : `No selected resource can ${action} in its current state`
+    },
+    [selected, findResource],
+  )
+
   const addToast = useCallback((message: string, type: Toast['type']) => {
     const id = `${Date.now()}-${Math.random()}`
     setToasts((prev) => [...prev, { id, message, type }])
@@ -286,6 +326,19 @@ export default function DashboardPage() {
       }
       if (type === 'database' && action === 'deploy') {
         addToast('Databases cannot be deployed', 'error')
+        return
+      }
+      const status =
+        type === 'application'
+          ? applications.find((a) => a.uuid === uuid)?.status
+          : type === 'service'
+            ? services.find((s) => s.uuid === uuid)?.status
+            : databases.find((d) => d.uuid === uuid)?.status
+      if (action !== 'delete' && !canRunAction(action, status)) {
+        addToast(
+          `Cannot ${action}: resource is not in a valid state`,
+          'error',
+        )
         return
       }
       startPending(uuid, type, action)
@@ -325,7 +378,7 @@ export default function DashboardPage() {
       // it once the resource's real status reflects the expected outcome.
       refetchByType(type)
     },
-    [client, addToast, refetchByType, isResourceBusy, startPending, clearPending],
+    [client, addToast, refetchByType, isResourceBusy, startPending, clearPending, applications, services, databases],
   )
 
   const handleAction = useCallback(
@@ -370,23 +423,41 @@ export default function DashboardPage() {
         return
       }
       let skippedDatabases = 0
+      let skippedByState = 0
       for (const id of entries) {
-        const [type, uuid] = id.split(':') as [ResourceType, string]
+        const { type, resource } = findResource(id)
         if (type === 'database' && action === 'deploy') {
           skippedDatabases += 1
           continue
         }
-        handleBatchAdd(uuid, type, action)
+        if (
+          !resource ||
+          !canRunAction(action, (resource as { status?: string }).status)
+        ) {
+          skippedByState += 1
+          continue
+        }
+        handleBatchAdd(resource.uuid, type, action)
       }
-      if (skippedDatabases > 0) {
+      const skipped = skippedDatabases + skippedByState
+      if (skipped > 0) {
+        const parts: string[] = []
+        if (skippedDatabases > 0)
+          parts.push(
+            `${skippedDatabases} database${skippedDatabases > 1 ? 's' : ''} (deploy not available)`,
+          )
+        if (skippedByState > 0)
+          parts.push(
+            `${skippedByState} resource${skippedByState > 1 ? 's' : ''} (not in a valid state)`,
+          )
         addToast(
-          `${skippedDatabases} database${skippedDatabases > 1 ? 's' : ''} skipped: deploy is not available`,
+          `${parts.join(', ')} skipped from ${action}`,
           'error',
         )
       }
       setSelected(new Set())
     },
-    [selected, handleBatchAdd, findName, addToast],
+    [selected, handleBatchAdd, findResource, findName, addToast],
   )
 
   const confirmStop = useCallback(() => {
@@ -608,29 +679,39 @@ export default function DashboardPage() {
             </span>
             <button
               onClick={() => handleBatchAction('start')}
-              className="flex h-9 flex-1 items-center justify-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-muted sm:h-auto sm:flex-none sm:py-1.5"
+              disabled={!!batchDisabledReason('start')}
+              title={batchDisabledReason('start') ?? 'Start selected resources'}
+              className="flex h-9 flex-1 items-center justify-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-muted disabled:pointer-events-none disabled:opacity-40 sm:h-auto sm:flex-none sm:py-1.5"
             >
               <Play className="h-3 w-3" />
               Start
             </button>
             <button
               onClick={() => handleBatchAction('stop')}
-              className="flex h-9 flex-1 items-center justify-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-muted sm:h-auto sm:flex-none sm:py-1.5"
+              disabled={!!batchDisabledReason('stop')}
+              title={batchDisabledReason('stop') ?? 'Stop selected resources'}
+              className="flex h-9 flex-1 items-center justify-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-muted disabled:pointer-events-none disabled:opacity-40 sm:h-auto sm:flex-none sm:py-1.5"
             >
               <Square className="h-3 w-3" />
               Stop
             </button>
             <button
               onClick={() => handleBatchAction('restart')}
-              className="flex h-9 flex-1 items-center justify-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-muted sm:h-auto sm:flex-none sm:py-1.5"
+              disabled={!!batchDisabledReason('restart')}
+              title={batchDisabledReason('restart') ?? 'Restart selected resources'}
+              className="flex h-9 flex-1 items-center justify-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-muted disabled:pointer-events-none disabled:opacity-40 sm:h-auto sm:flex-none sm:py-1.5"
             >
               <RotateCcw className="h-3 w-3" />
               Restart
             </button>
             <button
               onClick={() => handleBatchAction('deploy')}
-              title="Redeploy (rolling update if possible); databases are skipped"
-              className="flex h-9 flex-1 items-center justify-center gap-1 rounded-md border border-black bg-black px-2.5 text-xs font-medium text-white hover:bg-black/80 dark:border-white dark:bg-white dark:text-black dark:hover:bg-white/80 sm:h-auto sm:flex-none sm:py-1.5"
+              disabled={!!batchDisabledReason('deploy')}
+              title={
+                batchDisabledReason('deploy') ??
+                'Redeploy selected (rolling update if possible); databases are skipped'
+              }
+              className="flex h-9 flex-1 items-center justify-center gap-1 rounded-md border border-black bg-black px-2.5 text-xs font-medium text-white hover:bg-black/80 disabled:pointer-events-none disabled:opacity-40 dark:border-white dark:bg-white dark:text-black dark:hover:bg-white/80 sm:h-auto sm:flex-none sm:py-1.5"
             >
               <Rocket className="h-3 w-3" />
               Redeploy
