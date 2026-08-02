@@ -266,7 +266,7 @@ export function CloneDialog({
         <Copy className="h-4 w-4" />
         {isBatch
           ? `Clone ${sources.length} ${sourceType}s`
-          : `Clone ${sourceType} &laquo;${primary?.name || 'Unnamed'}&raquo;`}
+          : `Clone ${sourceType} «${primary?.name || 'Unnamed'}»`}
       </h2>
 
       {details.loading ? (
@@ -534,7 +534,7 @@ export function CloneDialog({
             >
               {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               {submitting
-                ? 'Cloning&hellip;'
+                ? 'Cloning…'
                 : isBatch
                   ? `Clone ${sources.length}`
                   : 'Clone'}
