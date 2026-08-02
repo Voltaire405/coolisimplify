@@ -8,6 +8,7 @@ import type {
   Project,
   Environment,
   Server,
+  DeleteOptions,
 } from '@/lib/types'
 
 const REFRESH_INTERVAL = 30000
@@ -118,8 +119,8 @@ export function useEnvironments(projectUuid: string | null) {
   return { data, loading, refetch }
 }
 
-export type BatchAction = 'start' | 'stop' | 'restart' | 'deploy'
-export type RowAction = BatchAction | 'delete' | 'clone'
+export type BatchAction = 'start' | 'stop' | 'restart' | 'deploy' | 'delete'
+export type RowAction = BatchAction | 'clone'
 export type ResourceType = 'application' | 'service' | 'database'
 
 export interface BatchItem {
@@ -128,6 +129,7 @@ export interface BatchItem {
   resourceType: ResourceType
   resourceName: string
   action: BatchAction
+  deleteOptions?: DeleteOptions
   status: 'pending' | 'in-progress' | 'completed' | 'failed'
   message?: string
   error?: string
@@ -138,6 +140,7 @@ async function runAction(
   type: ResourceType,
   action: BatchAction,
   uuid: string,
+  deleteOptions?: DeleteOptions,
 ): Promise<string | undefined> {
   if (type === 'application') {
     if (action === 'start') return (await client.startApplication(uuid)).message
@@ -145,6 +148,8 @@ async function runAction(
     // Coolify's "deploy/redeploy" for apps is the start endpoint: it queues a
     // full deployment (rolling update if possible). restart is restart_only.
     if (action === 'deploy') return (await client.startApplication(uuid)).message
+    if (action === 'delete')
+      return (await client.deleteApplication(uuid, deleteOptions)).message
     return (await client.restartApplication(uuid)).message
   }
   if (type === 'service') {
@@ -153,11 +158,15 @@ async function runAction(
     // Service "redeploy" equivalent: restart pulling the latest images.
     if (action === 'deploy')
       return (await client.restartService(uuid, { latest: true })).message
+    if (action === 'delete')
+      return (await client.deleteService(uuid, deleteOptions)).message
     return (await client.restartService(uuid)).message
   }
   if (action === 'deploy') throw new Error('Databases cannot be deployed')
   if (action === 'start') return (await client.startDatabase(uuid)).message
   if (action === 'stop') return (await client.stopDatabase(uuid)).message
+  if (action === 'delete')
+    return (await client.deleteDatabase(uuid, deleteOptions)).message
   return (await client.restartDatabase(uuid)).message
 }
 
@@ -236,6 +245,7 @@ export function useBatchQueue(options: BatchQueueOptions = {}) {
             item.resourceType,
             item.action,
             item.resourceUuid,
+            item.deleteOptions,
           )
           patchItem(item.id, { message })
           onResourceChangedRef.current?.(item.resourceType)
@@ -288,6 +298,7 @@ export function useBatchQueue(options: BatchQueueOptions = {}) {
       resourceType: ResourceType,
       resourceName: string,
       action: BatchAction,
+      deleteOptions?: DeleteOptions,
     ): boolean => {
       // Skip duplicates: a resource already pending or in-progress gets no extra request.
       const alreadyQueued = itemsRef.current.some(
@@ -306,6 +317,7 @@ export function useBatchQueue(options: BatchQueueOptions = {}) {
           resourceType,
           resourceName,
           action,
+          ...(deleteOptions ? { deleteOptions } : {}),
           status: 'pending' as const,
         },
       ])

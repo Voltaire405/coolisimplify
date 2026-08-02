@@ -224,6 +224,13 @@ export type Resource = Application | Service | Database
 
 export type ResourceType = 'application' | 'service' | 'database'
 
+export interface DeleteOptions {
+  delete_volumes: boolean
+  delete_configurations: boolean
+  delete_connected_networks: boolean
+  docker_cleanup: boolean
+}
+
 export interface ApiError {
   message: string
 }

@@ -16,9 +16,9 @@ import { ConfigButton } from '@/components/config-button'
 import { ProjectCard } from '@/components/project-card'
 import { BatchQueue } from '@/components/batch-queue'
 import {
+  BatchDeleteConfirmDialog,
   DeleteConfirmDialog,
   StopConfirmDialog,
-  type DeleteOptions,
 } from '@/components/confirm-dialog'
 import { CloneDialog } from '@/components/clone-dialog'
 import type { BatchCloneResultItem } from '@/lib/clone'
@@ -29,12 +29,14 @@ import {
   RotateCcw,
   Rocket,
   Copy,
+  Trash2,
   X,
   Loader2,
   AlertCircle,
   RefreshCw,
 } from 'lucide-react'
 import type { ResourceType, BatchAction, RowAction } from '@/hooks/use-coolify'
+import type { DeleteOptions } from '@/lib/types'
 import { cn } from '@workspace/ui/lib/utils'
 import { canRunAction } from '@/lib/resource-state'
 
@@ -241,7 +243,13 @@ export default function DashboardPage() {
 
   // Confirmation targets. Delete and stop never execute directly: the click
   // opens a modal and only its confirm button runs the action.
-  type DeleteTarget = { uuid: string; type: ResourceType; name: string }
+  type DeleteTarget =
+    | { kind: 'single'; uuid: string; type: ResourceType; name: string }
+    | {
+        kind: 'batch'
+        resources: Array<{ uuid: string; type: ResourceType; name: string }>
+        skipped: number
+      }
   type StopTarget =
     | { kind: 'single'; uuid: string; type: ResourceType; name: string }
     | { kind: 'batch'; ids: string[]; names: string[] }
@@ -277,6 +285,24 @@ export default function DashboardPage() {
     },
     [applications, services, databases],
   )
+
+  const selectedDeleteTargets = useMemo(() => {
+    const targets: Array<{
+      uuid: string
+      type: ResourceType
+      name: string
+    }> = []
+    for (const id of selected) {
+      const { type, resource } = findResource(id)
+      if (!resource || isResourceBusy(resource.uuid)) continue
+      targets.push({
+        uuid: resource.uuid,
+        type,
+        name: resource.name || 'Resource',
+      })
+    }
+    return targets
+  }, [selected, findResource, isResourceBusy])
 
   const batchDisabledReason = useCallback(
     (action: BatchAction): string | undefined => {
@@ -399,7 +425,7 @@ export default function DashboardPage() {
         return
       }
       if (action === 'delete') {
-        setDeleteTarget({ uuid, type, name: findName(uuid) })
+        setDeleteTarget({ kind: 'single', uuid, type, name: findName(uuid) })
         return
       }
       if (action === 'stop') {
@@ -412,13 +438,24 @@ export default function DashboardPage() {
   )
 
   const handleBatchAdd = useCallback(
-    (uuid: string, type: ResourceType, action: BatchAction) => {
+    (
+      uuid: string,
+      type: ResourceType,
+      action: BatchAction,
+      deleteOptions?: DeleteOptions,
+    ) => {
       if (isResourceBusy(uuid)) return
       if (type === 'database' && action === 'deploy') {
         addToast('Databases cannot be deployed', 'error')
         return
       }
-      const enqueued = queue.enqueue(uuid, type, findName(uuid), action)
+      const enqueued = queue.enqueue(
+        uuid,
+        type,
+        findName(uuid),
+        action,
+        deleteOptions,
+      )
       if (enqueued) startPending(uuid, type, action)
     },
     [queue, findName, isResourceBusy, startPending, addToast],
@@ -427,6 +464,18 @@ export default function DashboardPage() {
   const handleBatchAction = useCallback(
     (action: BatchAction) => {
       const entries = Array.from(selected)
+      if (action === 'delete') {
+        if (selectedDeleteTargets.length === 0) {
+          addToast('No selected resource can be deleted', 'error')
+          return
+        }
+        setDeleteTarget({
+          kind: 'batch',
+          resources: selectedDeleteTargets,
+          skipped: entries.length - selectedDeleteTargets.length,
+        })
+        return
+      }
       if (action === 'stop') {
         // Stop is disruptive: confirm before queuing anything.
         setStopTarget({
@@ -471,7 +520,14 @@ export default function DashboardPage() {
       }
       setSelected(new Set())
     },
-    [selected, handleBatchAdd, findResource, findName, addToast],
+    [
+      selected,
+      selectedDeleteTargets,
+      handleBatchAdd,
+      findResource,
+      findName,
+      addToast,
+    ],
   )
 
   const confirmStop = useCallback(() => {
@@ -494,9 +550,43 @@ export default function DashboardPage() {
       const target = deleteTarget
       setDeleteTarget(null)
       if (!target) return
-      void executeAction(target.uuid, target.type, 'delete', opts)
+      if (target.kind === 'single') {
+        void executeAction(target.uuid, target.type, 'delete', opts)
+        return
+      }
+
+      let skipped = target.skipped
+      for (const resource of target.resources) {
+        if (isResourceBusy(resource.uuid)) {
+          skipped += 1
+          continue
+        }
+        const enqueued = queue.enqueue(
+          resource.uuid,
+          resource.type,
+          resource.name,
+          'delete',
+          opts,
+        )
+        if (enqueued) startPending(resource.uuid, resource.type, 'delete')
+        else skipped += 1
+      }
+      if (skipped > 0) {
+        addToast(
+          `${skipped} resource${skipped === 1 ? '' : 's'} skipped from delete`,
+          'error',
+        )
+      }
+      setSelected(new Set())
     },
-    [deleteTarget, executeAction],
+    [
+      deleteTarget,
+      executeAction,
+      isResourceBusy,
+      queue,
+      startPending,
+      addToast,
+    ],
   )
 
   // Batch clone: only allowed when all selected resources share a type and
@@ -817,6 +907,19 @@ export default function DashboardPage() {
               <Copy className="h-3 w-3" />
               Clone
             </button>
+            <button
+              onClick={() => handleBatchAction('delete')}
+              disabled={selectedDeleteTargets.length === 0}
+              title={
+                selectedDeleteTargets.length === 0
+                  ? 'No selected resource can be deleted'
+                  : 'Delete selected resources'
+              }
+              className="flex h-9 flex-1 items-center justify-center gap-1 rounded-md border border-destructive/40 px-2.5 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-40 sm:h-auto sm:flex-none sm:py-1.5"
+            >
+              <Trash2 className="h-3 w-3" />
+              Delete
+            </button>
             <div className="hidden h-4 w-px bg-border sm:mx-1 sm:block" />
             <button
               onClick={() => setSelected(new Set())}
@@ -836,11 +939,19 @@ export default function DashboardPage() {
         elevated={selected.size > 0}
       />
 
-      {deleteTarget && (
+      {deleteTarget?.kind === 'single' && (
         <DeleteConfirmDialog
           key={deleteTarget.uuid}
           resourceName={deleteTarget.name}
           resourceType={deleteTarget.type}
+          onCancel={() => setDeleteTarget(null)}
+          onConfirm={confirmDelete}
+        />
+      )}
+      {deleteTarget?.kind === 'batch' && (
+        <BatchDeleteConfirmDialog
+          resources={deleteTarget.resources}
+          skipped={deleteTarget.skipped}
           onCancel={() => setDeleteTarget(null)}
           onConfirm={confirmDelete}
         />

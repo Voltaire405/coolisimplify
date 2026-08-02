@@ -18,6 +18,7 @@ import type {
   DockerfileAppCreate,
   ServiceCreate,
   DatabaseCreate,
+  DeleteOptions,
 } from './types'
 
 export interface CoolifyClientOptions {
@@ -171,12 +172,7 @@ export class CoolifyClient {
 
   deleteApplication(
     uuid: string,
-    opts?: {
-      delete_configurations?: boolean
-      delete_volumes?: boolean
-      docker_cleanup?: boolean
-      delete_connected_networks?: boolean
-    },
+    opts?: Partial<DeleteOptions>,
   ): Promise<DeleteResponse> {
     const params = new URLSearchParams()
     if (opts?.delete_configurations !== undefined)
@@ -254,12 +250,7 @@ export class CoolifyClient {
 
   deleteService(
     uuid: string,
-    opts?: {
-      delete_configurations?: boolean
-      delete_volumes?: boolean
-      docker_cleanup?: boolean
-      delete_connected_networks?: boolean
-    },
+    opts?: Partial<DeleteOptions>,
   ): Promise<DeleteResponse> {
     const params = new URLSearchParams()
     if (opts?.delete_configurations !== undefined)
@@ -331,12 +322,7 @@ export class CoolifyClient {
 
   deleteDatabase(
     uuid: string,
-    opts?: {
-      delete_configurations?: boolean
-      delete_volumes?: boolean
-      docker_cleanup?: boolean
-      delete_connected_networks?: boolean
-    },
+    opts?: Partial<DeleteOptions>,
   ): Promise<DeleteResponse> {
     const params = new URLSearchParams()
     if (opts?.delete_configurations !== undefined)

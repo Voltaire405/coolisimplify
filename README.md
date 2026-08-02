@@ -5,7 +5,8 @@ A minimal Next.js dashboard for managing self-hosted [Coolify](https://coolify.i
 ## Features
 
 - **Zero backend** — communicates with the Coolify REST API directly via a Next.js route handler
-- **Batch operations** — select multiple resources and start/stop/restart/deploy them sequentially
+- **Batch operations** — select multiple resources and start/stop/restart/deploy/delete them sequentially
+- **Safe batch deletion** — review destructive options and confirm with `ACCEPT` before deleting
 - **Real-time status tracking** — pending pills stay visible until Coolify's containers actually transition
 - **Dark mode** — built with next-themes
 - **LocalStorage config** — server URL and API token stored client-side, no `.env` needed
