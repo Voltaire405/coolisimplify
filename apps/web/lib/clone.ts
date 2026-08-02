@@ -170,10 +170,10 @@ export const DATABASE_CREDENTIAL_FIELDS: Record<
 }
 
 /**
- * Allowlist of fields that Coolify's application create endpoints
- * (private-github-app / dockerfile) accept. Copied verbatim from the source
- * detail (with per-field transforms below). Any other field on the detail
- * must NOT be sent — Coolify 422s on unknown fields.
+ * Allowlist of fields that Coolify's `POST /applications/private-github-app`
+ * accepts. Copied verbatim from the source detail (with per-field transforms
+ * below). Any other field on the detail must NOT be sent — Coolify 422s on
+ * unknown fields.
  */
 const APP_CREATE_ALLOWLIST = new Set([
   'name',
@@ -237,6 +237,73 @@ const APP_CREATE_ALLOWLIST = new Set([
   'is_preserve_repository_enabled',
 ])
 
+/**
+ * `POST /applications/dockerfile` accepts a strictly smaller set: everything
+ * git- and build-pack-specific is rejected there. Sending them 422s with
+ * "This field is not allowed."
+ */
+const GITHUB_ONLY_FIELDS = new Set([
+  'git_repository',
+  'git_branch',
+  'is_static',
+  'is_spa',
+  'is_auto_deploy_enabled',
+  'static_image',
+  'install_command',
+  'build_command',
+  'start_command',
+  'publish_directory',
+  'dockerfile_location',
+  'docker_compose_location',
+  'docker_compose_custom_start_command',
+  'docker_compose_custom_build_command',
+  'docker_compose_domains',
+  'watch_paths',
+  'is_preserve_repository_enabled',
+])
+
+const DOCKERFILE_CREATE_ALLOWLIST = new Set(
+  [...APP_CREATE_ALLOWLIST].filter((k) => !GITHUB_ONLY_FIELDS.has(k)),
+)
+
+/**
+ * `docker_compose_domains` round-trips badly: the GET detail returns a JSON
+ * string keyed by service name, while the create endpoint expects an array of
+ * `{ name, domain }`. Returns null when the value can't be mapped, so the
+ * caller drops the field rather than 422ing.
+ */
+export function parseDockerComposeDomains(
+  raw: unknown,
+): Array<{ name: string; domain: string }> | null {
+  if (Array.isArray(raw)) return raw as Array<{ name: string; domain: string }>
+  if (typeof raw !== 'string' || !raw.trim()) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  if (Array.isArray(parsed)) {
+    const items = parsed.filter(
+      (i): i is { name: string; domain: string } =>
+        !!i && typeof i === 'object' && 'name' in i && 'domain' in i,
+    )
+    return items.length ? items : null
+  }
+  if (!parsed || typeof parsed !== 'object') return null
+  const items: Array<{ name: string; domain: string }> = []
+  for (const [name, value] of Object.entries(parsed as Record<string, unknown>)) {
+    const domain =
+      typeof value === 'string'
+        ? value
+        : value && typeof value === 'object' && 'domain' in value
+          ? String((value as { domain: unknown }).domain ?? '')
+          : ''
+    if (domain) items.push({ name, domain })
+  }
+  return items.length ? items : null
+}
+
 /** Fields the database create endpoints accept, common to all engines. */
 const DB_COMMON_ALLOWLIST = new Set([
   'name',
@@ -259,6 +326,7 @@ const REDIRECT_VALUES = new Set(['www', 'non-www', 'both'])
 function appCreateBase(
   detail: Application,
   target: CloneTarget,
+  kind: ApplicationKind,
 ): ApplicationCreateBase {
   const payload: ApplicationCreateBase = {
     project_uuid: target.projectUuid,
@@ -266,20 +334,43 @@ function appCreateBase(
     environment_uuid: target.environmentUuid,
     name: target.name,
   }
+  const allowlist =
+    kind === 'dockerfile' ? DOCKERFILE_CREATE_ALLOWLIST : APP_CREATE_ALLOWLIST
   const source = detail as unknown as Record<string, unknown>
-  for (const key of APP_CREATE_ALLOWLIST) {
+  for (const key of allowlist) {
     if (key === 'domains') continue // handled below
     const value = source[key]
     if (value === undefined || value === null) continue
     // Enum/type guards: only copy values the endpoint accepts.
     if (key === 'redirect' && !REDIRECT_VALUES.has(String(value))) continue
     if (key === 'static_image' && value !== 'nginx:alpine') continue
-    if (key === 'dockerfile' && detail.build_pack !== 'dockerfile') continue
-    if (
-      key === 'docker_compose_domains' &&
-      detail.build_pack !== 'dockercompose'
-    )
+    if (key === 'dockerfile') {
+      if (detail.build_pack !== 'dockerfile') continue
+      // Coolify rejects a plain-text Dockerfile (isBase64Encoded()), and an
+      // empty one fails the same check — apps that build from a repo Dockerfile
+      // expose the path, not the content.
+      const content = String(value)
+      if (!content.trim()) continue
+      ;(payload as unknown as Record<string, unknown>)[key] = toBase64(content)
       continue
+    }
+    if (key === 'custom_labels') {
+      // validateDataApplications() runs on every create branch and 422s with
+      // "The custom_labels should be base64 encoded." An empty string still
+      // counts as present there and fails the check, so omit it entirely.
+      const labels = String(value)
+      if (!labels.trim()) continue
+      ;(payload as unknown as Record<string, unknown>)[key] = toBase64(labels)
+      continue
+    }
+    if (key === 'docker_compose_domains') {
+      if (detail.build_pack !== 'dockercompose') continue
+      // The GET returns a JSON string; the create endpoint wants an array.
+      const domains = parseDockerComposeDomains(value)
+      if (!domains) continue
+      ;(payload as unknown as Record<string, unknown>)[key] = domains
+      continue
+    }
     // The allowlist is a subset of ApplicationCreateBase's keys.
     ;(payload as unknown as Record<string, unknown>)[key] = value
   }
@@ -301,7 +392,7 @@ export function buildClonePayload(
         'This application cannot be cloned: only private GitHub repositories and Dockerfile apps are supported.',
       )
     }
-    const payload = appCreateBase(app, target)
+    const payload = appCreateBase(app, target, kind)
     payload.instant_deploy = false
     if (target.branch !== undefined) {
       payload.git_branch = target.branch
@@ -336,7 +427,9 @@ export function buildClonePayload(
         'The source application does not expose its Dockerfile content.',
       )
     }
-    payload.dockerfile = app.dockerfile
+    // Coolify validates the Dockerfile with isBase64Encoded() and 422s on
+    // plain text.
+    payload.dockerfile = toBase64(app.dockerfile)
     return payload as DockerfileAppCreate
   }
 

@@ -34,6 +34,23 @@ export class CoolifyClient {
     this.token = token
   }
 
+  /**
+   * Coolify puts the useful part of a 422 in `errors` (one entry per offending
+   * field) and leaves `message` as a generic "Validation failed." — surface
+   * both, otherwise the field name is only visible in DevTools.
+   */
+  private static formatError(err: unknown, status: number): string {
+    const body = (err ?? {}) as { message?: string; errors?: unknown }
+    const message = body.message || `HTTP ${status}`
+    const errors = body.errors
+    if (!errors || typeof errors !== 'object') return message
+    const parts = Object.entries(errors as Record<string, unknown>).map(
+      ([field, detail]) =>
+        `${field}: ${Array.isArray(detail) ? detail.join(' ') : String(detail)}`,
+    )
+    return parts.length ? `${message} ${parts.join('; ')}` : message
+  }
+
   private async request<T>(
     path: string,
     options: RequestInit = {},
@@ -52,7 +69,7 @@ export class CoolifyClient {
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({ message: res.statusText }))
-      throw new Error(err.message || `HTTP ${res.status}`)
+      throw new Error(CoolifyClient.formatError(err, res.status))
     }
 
     if (res.status === 204) {
