@@ -2,6 +2,7 @@
 
 import { StatusIndicator, LedCard } from './status-indicator'
 import { ContextMenu } from './context-menu'
+import { InlineRename } from './inline-rename'
 import {
   Box,
   Workflow,
@@ -33,6 +34,7 @@ interface ResourceRowProps {
   onToggleSelect: () => void
   onAction: (action: RowAction) => void
   onBatchAdd: (action: BatchAction) => void
+  onRename: (newName: string) => Promise<boolean>
 }
 
 const typeIcons = {
@@ -70,6 +72,7 @@ export function ResourceRow({
   onToggleSelect,
   onAction,
   onBatchAdd,
+  onRename,
 }: ResourceRowProps) {
   const status = (resource as { status?: string }).status
   const active = isResourceActive(status)
@@ -150,9 +153,7 @@ export function ResourceRow({
           <Icon className="mt-1 h-4 w-4 shrink-0 text-muted-foreground sm:mt-0" />
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
-              <span className="min-w-0 max-w-full truncate text-sm font-medium">
-                {name}
-              </span>
+              <InlineRename name={name} busy={busy} onSubmit={onRename} />
               <span className="shrink-0 rounded border border-border px-1 py-0 text-[10px] uppercase tracking-wider text-muted-foreground">
                 {type}
               </span>

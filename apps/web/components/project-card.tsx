@@ -27,6 +27,11 @@ interface ProjectCardProps {
   onToggleSelect: (id: string) => void
   onAction: (uuid: string, type: ResourceType, action: RowAction) => void
   onBatchAdd: (uuid: string, type: ResourceType, action: BatchAction) => void
+  onRename: (
+    uuid: string,
+    type: ResourceType,
+    newName: string,
+  ) => Promise<boolean>
   isBusy?: (uuid: string) => boolean
   busyAction?: (uuid: string) => RowAction | undefined
   selectionOrder?: Map<string, number>
@@ -53,6 +58,7 @@ export function ProjectCard({
   onToggleSelect,
   onAction,
   onBatchAdd,
+  onRename,
   isBusy,
   busyAction,
   selectionOrder,
@@ -209,6 +215,9 @@ export function ProjectCard({
                           }
                           onBatchAdd={(action) =>
                             onBatchAdd(resource.uuid, type, action)
+                          }
+                          onRename={(newName) =>
+                            onRename(resource.uuid, type, newName)
                           }
                         />
                       )

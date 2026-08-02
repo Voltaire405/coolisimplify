@@ -461,6 +461,40 @@ export default function DashboardPage() {
     [queue, findName, isResourceBusy, startPending, addToast],
   )
 
+  const handleRename = useCallback(
+    async (uuid: string, type: ResourceType, newName: string) => {
+      if (!client) {
+        addToast('Coolify is not configured', 'error')
+        return false
+      }
+      if (isResourceBusy(uuid)) {
+        addToast('Request in progress', 'error')
+        return false
+      }
+      const trimmed = newName.trim()
+      if (!trimmed) {
+        addToast('Name cannot be empty', 'error')
+        return false
+      }
+      try {
+        if (type === 'application') {
+          await client.updateApplication(uuid, { name: trimmed })
+        } else if (type === 'service') {
+          await client.updateService(uuid, { name: trimmed })
+        } else {
+          await client.updateDatabase(uuid, { name: trimmed })
+        }
+        addToast(`Renamed ${type} to «${trimmed}»`, 'success')
+        refetchByType(type)
+        return true
+      } catch (err) {
+        addToast(err instanceof Error ? err.message : 'Rename failed', 'error')
+        return false
+      }
+    },
+    [client, addToast, refetchByType, isResourceBusy],
+  )
+
   const handleBatchAction = useCallback(
     (action: BatchAction) => {
       const entries = Array.from(selected)
@@ -841,6 +875,7 @@ export default function DashboardPage() {
                     onToggleSelect={handleToggleSelect}
                     onAction={handleAction}
                     onBatchAdd={handleBatchAdd}
+                    onRename={handleRename}
                     isBusy={isResourceBusy}
                     busyAction={busyAction}
                     selectionOrder={selectionOrder}
