@@ -161,7 +161,7 @@ export class CoolifyClient {
       params.set('instant_deploy', String(opts.instant_deploy))
     const qs = params.toString() ? `?${params.toString()}` : ''
     return this.request<StartResponse>(`/applications/${uuid}/start${qs}`, {
-      method: 'GET',
+      method: 'POST',
     })
   }
 
@@ -174,13 +174,13 @@ export class CoolifyClient {
       params.set('docker_cleanup', String(opts.docker_cleanup))
     const qs = params.toString() ? `?${params.toString()}` : ''
     return this.request<StopResponse>(`/applications/${uuid}/stop${qs}`, {
-      method: 'GET',
+      method: 'POST',
     })
   }
 
   restartApplication(uuid: string): Promise<RestartResponse> {
     return this.request<RestartResponse>(`/applications/${uuid}/restart`, {
-      method: 'GET',
+      method: 'POST',
     })
   }
 
@@ -229,19 +229,25 @@ export class CoolifyClient {
 
   startService(uuid: string): Promise<StartResponse> {
     return this.request<StartResponse>(`/services/${uuid}/start`, {
-      method: 'GET',
+      method: 'POST',
     })
   }
 
   stopService(uuid: string): Promise<StopResponse> {
     return this.request<StopResponse>(`/services/${uuid}/stop`, {
-      method: 'GET',
+      method: 'POST',
     })
   }
 
-  restartService(uuid: string): Promise<RestartResponse> {
-    return this.request<RestartResponse>(`/services/${uuid}/restart`, {
-      method: 'GET',
+  restartService(
+    uuid: string,
+    opts?: { latest?: boolean },
+  ): Promise<RestartResponse> {
+    const params = new URLSearchParams()
+    if (opts?.latest !== undefined) params.set('latest', String(opts.latest))
+    const qs = params.toString() ? `?${params.toString()}` : ''
+    return this.request<RestartResponse>(`/services/${uuid}/restart${qs}`, {
+      method: 'POST',
     })
   }
 
@@ -290,19 +296,19 @@ export class CoolifyClient {
 
   startDatabase(uuid: string): Promise<StartResponse> {
     return this.request<StartResponse>(`/databases/${uuid}/start`, {
-      method: 'GET',
+      method: 'POST',
     })
   }
 
   stopDatabase(uuid: string): Promise<StopResponse> {
     return this.request<StopResponse>(`/databases/${uuid}/stop`, {
-      method: 'GET',
+      method: 'POST',
     })
   }
 
   restartDatabase(uuid: string): Promise<RestartResponse> {
     return this.request<RestartResponse>(`/databases/${uuid}/restart`, {
-      method: 'GET',
+      method: 'POST',
     })
   }
 

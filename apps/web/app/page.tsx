@@ -16,6 +16,11 @@ import { ConfigButton } from '@/components/config-button'
 import { ProjectCard } from '@/components/project-card'
 import { BatchQueue } from '@/components/batch-queue'
 import {
+  DeleteConfirmDialog,
+  StopConfirmDialog,
+  type DeleteOptions,
+} from '@/components/confirm-dialog'
+import {
   Play,
   Square,
   RotateCcw,
@@ -165,14 +170,18 @@ export default function DashboardPage() {
       action: BatchAction | 'delete'
     }): Promise<'completed' | 'timeout'> => {
       const startedAt = Date.now()
-      const isAppRestart =
-        item.resourceType === 'application' && item.action === 'restart'
-      const timeoutMs = isAppRestart
+      // App deploy runs a full build pipeline; app restart_only is faster but
+      // both go through the deployment queue, so give them the long budget.
+      const isAppRedeployLike =
+        item.resourceType === 'application' &&
+        (item.action === 'restart' || item.action === 'deploy')
+      const timeoutMs = isAppRedeployLike
         ? 5 * 60_000
         : item.action === 'delete'
           ? 60_000
           : 2 * 60_000
-      const minRestartAgeMs = item.action === 'restart' ? 8_000 : 0
+      const minRestartAgeMs =
+        item.action === 'restart' || item.action === 'deploy' ? 8_000 : 0
       const pollIntervalMs = 3000
       const deadline = startedAt + timeoutMs
 
@@ -193,7 +202,11 @@ export default function DashboardPage() {
           const age = Date.now() - startedAt
           if (item.action === 'start' && active) return 'completed'
           if (item.action === 'stop' && !active) return 'completed'
-          if (item.action === 'restart' && active && age >= minRestartAgeMs)
+          if (
+            (item.action === 'restart' || item.action === 'deploy') &&
+            active &&
+            age >= minRestartAgeMs
+          )
             return 'completed'
         }
 
@@ -221,6 +234,24 @@ export default function DashboardPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [toasts, setToasts] = useState<Toast[]>([])
 
+  // Confirmation targets. Delete and stop never execute directly: the click
+  // opens a modal and only its confirm button runs the action.
+  type DeleteTarget = { uuid: string; type: ResourceType; name: string }
+  type StopTarget =
+    | { kind: 'single'; uuid: string; type: ResourceType; name: string }
+    | { kind: 'batch'; ids: string[]; names: string[] }
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
+  const [stopTarget, setStopTarget] = useState<StopTarget | null>(null)
+
+  const findName = useCallback(
+    (uuid: string) =>
+      applications.find((a) => a.uuid === uuid)?.name ||
+      services.find((s) => s.uuid === uuid)?.name ||
+      databases.find((d) => d.uuid === uuid)?.name ||
+      'Resource',
+    [applications, services, databases],
+  )
+
   const addToast = useCallback((message: string, type: Toast['type']) => {
     const id = `${Date.now()}-${Math.random()}`
     setToasts((prev) => [...prev, { id, message, type }])
@@ -238,8 +269,13 @@ export default function DashboardPage() {
     })
   }, [])
 
-  const handleAction = useCallback(
-    async (uuid: string, type: ResourceType, action: BatchAction | 'delete') => {
+  const executeAction = useCallback(
+    async (
+      uuid: string,
+      type: ResourceType,
+      action: BatchAction | 'delete',
+      deleteOpts?: DeleteOptions,
+    ) => {
       if (!client) {
         addToast('Coolify is not configured', 'error')
         return
@@ -248,23 +284,33 @@ export default function DashboardPage() {
         // Another request is in flight for this resource; ignore the click.
         return
       }
+      if (type === 'database' && action === 'deploy') {
+        addToast('Databases cannot be deployed', 'error')
+        return
+      }
       startPending(uuid, type, action)
       try {
         if (type === 'application') {
           if (action === 'start') await client.startApplication(uuid)
           else if (action === 'stop') await client.stopApplication(uuid)
           else if (action === 'restart') await client.restartApplication(uuid)
-          else await client.deleteApplication(uuid)
+          // App deploy/redeploy = the start endpoint: queues a full
+          // deployment (rolling update if possible).
+          else if (action === 'deploy') await client.startApplication(uuid)
+          else await client.deleteApplication(uuid, deleteOpts)
         } else if (type === 'service') {
           if (action === 'start') await client.startService(uuid)
           else if (action === 'stop') await client.stopService(uuid)
           else if (action === 'restart') await client.restartService(uuid)
-          else await client.deleteService(uuid)
+          // Service redeploy equivalent: restart pulling latest images.
+          else if (action === 'deploy')
+            await client.restartService(uuid, { latest: true })
+          else await client.deleteService(uuid, deleteOpts)
         } else {
           if (action === 'start') await client.startDatabase(uuid)
           else if (action === 'stop') await client.stopDatabase(uuid)
           else if (action === 'restart') await client.restartDatabase(uuid)
-          else await client.deleteDatabase(uuid)
+          else await client.deleteDatabase(uuid, deleteOpts)
         }
         addToast(
           `${action.charAt(0).toUpperCase() + action.slice(1)} ${type} queued`,
@@ -282,29 +328,90 @@ export default function DashboardPage() {
     [client, addToast, refetchByType, isResourceBusy, startPending, clearPending],
   )
 
+  const handleAction = useCallback(
+    (uuid: string, type: ResourceType, action: BatchAction | 'delete') => {
+      if (isResourceBusy(uuid)) return
+      if (action === 'delete') {
+        setDeleteTarget({ uuid, type, name: findName(uuid) })
+        return
+      }
+      if (action === 'stop') {
+        setStopTarget({ kind: 'single', uuid, type, name: findName(uuid) })
+        return
+      }
+      void executeAction(uuid, type, action)
+    },
+    [executeAction, findName, isResourceBusy],
+  )
+
   const handleBatchAdd = useCallback(
     (uuid: string, type: ResourceType, action: BatchAction) => {
       if (isResourceBusy(uuid)) return
-      const name =
-        applications.find((a) => a.uuid === uuid)?.name ||
-        services.find((s) => s.uuid === uuid)?.name ||
-        databases.find((d) => d.uuid === uuid)?.name ||
-        'Resource'
-      const enqueued = queue.enqueue(uuid, type, name, action)
+      if (type === 'database' && action === 'deploy') {
+        addToast('Databases cannot be deployed', 'error')
+        return
+      }
+      const enqueued = queue.enqueue(uuid, type, findName(uuid), action)
       if (enqueued) startPending(uuid, type, action)
     },
-    [queue, applications, services, databases, isResourceBusy, startPending],
+    [queue, findName, isResourceBusy, startPending, addToast],
   )
 
   const handleBatchAction = useCallback(
     (action: BatchAction) => {
-      for (const id of selected) {
+      const entries = Array.from(selected)
+      if (action === 'stop') {
+        // Stop is disruptive: confirm before queuing anything.
+        setStopTarget({
+          kind: 'batch',
+          ids: entries,
+          names: entries.map((id) => findName(id.split(':')[1] as string)),
+        })
+        return
+      }
+      let skippedDatabases = 0
+      for (const id of entries) {
         const [type, uuid] = id.split(':') as [ResourceType, string]
+        if (type === 'database' && action === 'deploy') {
+          skippedDatabases += 1
+          continue
+        }
         handleBatchAdd(uuid, type, action)
+      }
+      if (skippedDatabases > 0) {
+        addToast(
+          `${skippedDatabases} database${skippedDatabases > 1 ? 's' : ''} skipped: deploy is not available`,
+          'error',
+        )
       }
       setSelected(new Set())
     },
-    [selected, handleBatchAdd],
+    [selected, handleBatchAdd, findName, addToast],
+  )
+
+  const confirmStop = useCallback(() => {
+    const target = stopTarget
+    setStopTarget(null)
+    if (!target) return
+    if (target.kind === 'single') {
+      void executeAction(target.uuid, target.type, 'stop')
+      return
+    }
+    for (const id of target.ids) {
+      const [type, uuid] = id.split(':') as [ResourceType, string]
+      handleBatchAdd(uuid, type, 'stop')
+    }
+    setSelected(new Set())
+  }, [stopTarget, executeAction, handleBatchAdd])
+
+  const confirmDelete = useCallback(
+    (opts: DeleteOptions) => {
+      const target = deleteTarget
+      setDeleteTarget(null)
+      if (!target) return
+      void executeAction(target.uuid, target.type, 'delete', opts)
+    },
+    [deleteTarget, executeAction],
   )
 
   // Resolver: when the resource's status reflects the expected outcome of a
@@ -339,7 +446,11 @@ export default function DashboardPage() {
       const active = isResourceActive(resource.status)
       if (p.action === 'start' && active) toClear.push(uuid)
       else if (p.action === 'stop' && !active) toClear.push(uuid)
-      else if (p.action === 'restart' && active && age >= RESTART_MIN_AGE_MS)
+      else if (
+        (p.action === 'restart' || p.action === 'deploy') &&
+        active &&
+        age >= RESTART_MIN_AGE_MS
+      )
         toClear.push(uuid)
     }
     if (toClear.length === 0) return
@@ -517,11 +628,12 @@ export default function DashboardPage() {
               Restart
             </button>
             <button
-              onClick={() => handleBatchAction('restart')}
+              onClick={() => handleBatchAction('deploy')}
+              title="Redeploy (rolling update if possible); databases are skipped"
               className="flex h-9 flex-1 items-center justify-center gap-1 rounded-md border border-black bg-black px-2.5 text-xs font-medium text-white hover:bg-black/80 dark:border-white dark:bg-white dark:text-black dark:hover:bg-white/80 sm:h-auto sm:flex-none sm:py-1.5"
             >
               <Rocket className="h-3 w-3" />
-              Deploy
+              Redeploy
             </button>
             <div className="hidden h-4 w-px bg-border sm:mx-1 sm:block" />
             <button
@@ -541,6 +653,25 @@ export default function DashboardPage() {
         onClearAll={queue.clearAll}
         elevated={selected.size > 0}
       />
+
+      {deleteTarget && (
+        <DeleteConfirmDialog
+          key={deleteTarget.uuid}
+          resourceName={deleteTarget.name}
+          resourceType={deleteTarget.type}
+          onCancel={() => setDeleteTarget(null)}
+          onConfirm={confirmDelete}
+        />
+      )}
+      {stopTarget && (
+        <StopConfirmDialog
+          names={
+            stopTarget.kind === 'single' ? [stopTarget.name] : stopTarget.names
+          }
+          onCancel={() => setStopTarget(null)}
+          onConfirm={confirmStop}
+        />
+      )}
 
       <div className="fixed inset-x-3 top-16 z-50 flex flex-col gap-2 sm:left-auto sm:right-4 sm:top-4 sm:w-80">
         {toasts.map((toast) => (

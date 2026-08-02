@@ -9,6 +9,7 @@ import {
   Play,
   Square,
   Rocket,
+  RotateCcw,
   MoreHorizontal,
   Loader2,
 } from 'lucide-react'
@@ -36,7 +37,8 @@ const typeIcons = {
 const ACTION_LABEL: Record<BatchAction | 'delete', string> = {
   start: 'starting',
   stop: 'stopping',
-  restart: 'redeploying',
+  restart: 'restarting',
+  deploy: 'deploying',
   delete: 'deleting',
 }
 
@@ -64,8 +66,12 @@ export function ResourceRow({
   }> = [
     { label: 'Start', action: 'start', disabled: busy || active },
     { label: 'Stop', action: 'stop', disabled: busy || !active },
-    { label: 'Redeploy', action: 'restart', disabled: busy },
-    { label: 'Delete', action: 'delete', dangerous: true, disabled: busy },
+    { label: 'Restart', action: 'restart', disabled: busy },
+    // Databases have no deploy concept in the Coolify API.
+    ...(type !== 'database'
+      ? [{ label: 'Redeploy', action: 'deploy' as const, disabled: busy }]
+      : []),
+    { label: 'Delete', action: 'delete' as const, dangerous: true, disabled: busy },
   ]
 
   return (
@@ -123,14 +129,29 @@ export function ResourceRow({
         </div>
 
         <div className="ml-8 flex items-center justify-end gap-1 sm:ml-0">
+          {type !== 'database' && (
+            <button
+              onClick={() => onBatchAdd('deploy')}
+              disabled={busy}
+              className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted disabled:opacity-30 sm:h-auto sm:w-auto sm:p-1.5"
+              aria-label="Queue redeploy"
+              title={
+                busy
+                  ? 'Request in progress'
+                  : 'Queue redeploy (rolling update if possible)'
+              }
+            >
+              <Rocket className="h-3.5 w-3.5" />
+            </button>
+          )}
           <button
             onClick={() => onBatchAdd('restart')}
             disabled={busy}
             className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted disabled:opacity-30 sm:h-auto sm:w-auto sm:p-1.5"
-            aria-label="Queue redeploy"
-            title={busy ? 'Request in progress' : 'Queue redeploy'}
+            aria-label="Queue restart"
+            title={busy ? 'Request in progress' : 'Queue restart (no rebuild)'}
           >
-            <Rocket className="h-3.5 w-3.5" />
+            <RotateCcw className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={() => onAction(active ? 'stop' : 'start')}

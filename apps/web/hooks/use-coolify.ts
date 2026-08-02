@@ -118,7 +118,7 @@ export function useEnvironments(projectUuid: string | null) {
   return { data, loading, refetch }
 }
 
-export type BatchAction = 'start' | 'stop' | 'restart'
+export type BatchAction = 'start' | 'stop' | 'restart' | 'deploy'
 export type ResourceType = 'application' | 'service' | 'database'
 
 export interface BatchItem {
@@ -141,13 +141,20 @@ async function runAction(
   if (type === 'application') {
     if (action === 'start') return (await client.startApplication(uuid)).message
     if (action === 'stop') return (await client.stopApplication(uuid)).message
+    // Coolify's "deploy/redeploy" for apps is the start endpoint: it queues a
+    // full deployment (rolling update if possible). restart is restart_only.
+    if (action === 'deploy') return (await client.startApplication(uuid)).message
     return (await client.restartApplication(uuid)).message
   }
   if (type === 'service') {
     if (action === 'start') return (await client.startService(uuid)).message
     if (action === 'stop') return (await client.stopService(uuid)).message
+    // Service "redeploy" equivalent: restart pulling the latest images.
+    if (action === 'deploy')
+      return (await client.restartService(uuid, { latest: true })).message
     return (await client.restartService(uuid)).message
   }
+  if (action === 'deploy') throw new Error('Databases cannot be deployed')
   if (action === 'start') return (await client.startDatabase(uuid)).message
   if (action === 'stop') return (await client.stopDatabase(uuid)).message
   return (await client.restartDatabase(uuid)).message
