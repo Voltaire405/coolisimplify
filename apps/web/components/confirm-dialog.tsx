@@ -12,7 +12,7 @@ export interface DeleteOptions {
   docker_cleanup: boolean
 }
 
-function ModalShell({
+export function ModalShell({
   onCancel,
   labelledBy,
   children,

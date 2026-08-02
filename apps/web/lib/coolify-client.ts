@@ -5,12 +5,19 @@ import type {
   Project,
   Environment,
   Server,
+  GithubApp,
   EnvironmentVariable,
   CreateResponse,
   DeleteResponse,
   StartResponse,
   StopResponse,
   RestartResponse,
+  DatabaseType,
+  EnvVarCreate,
+  PrivateGithubAppCreate,
+  DockerfileAppCreate,
+  ServiceCreate,
+  DatabaseCreate,
 } from './types'
 
 export interface CoolifyClientOptions {
@@ -117,6 +124,24 @@ export class CoolifyClient {
     return this.request<Application>(`/applications/${uuid}`)
   }
 
+  createApplicationFromGithubApp(
+    data: PrivateGithubAppCreate,
+  ): Promise<CreateResponse> {
+    return this.request<CreateResponse>('/applications/private-github-app', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
+  createApplicationFromDockerfile(
+    data: DockerfileAppCreate,
+  ): Promise<CreateResponse> {
+    return this.request<CreateResponse>('/applications/dockerfile', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
   updateApplication(
     uuid: string,
     data: Record<string, unknown>,
@@ -193,6 +218,13 @@ export class CoolifyClient {
     return this.request<Service>(`/services/${uuid}`)
   }
 
+  createService(data: ServiceCreate): Promise<CreateResponse> {
+    return this.request<CreateResponse>('/services', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
   updateService(
     uuid: string,
     data: Record<string, unknown>,
@@ -260,6 +292,16 @@ export class CoolifyClient {
     return this.request<Database>(`/databases/${uuid}`)
   }
 
+  createDatabase(
+    type: DatabaseType,
+    data: DatabaseCreate,
+  ): Promise<CreateResponse> {
+    return this.request<CreateResponse>(`/databases/${type}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
   updateDatabase(
     uuid: string,
     data: Record<string, unknown>,
@@ -321,6 +363,11 @@ export class CoolifyClient {
     return this.request<Server>(`/servers/${uuid}`)
   }
 
+  // GitHub Apps
+  listGithubApps(): Promise<GithubApp[]> {
+    return this.request<GithubApp[]>('/github-apps')
+  }
+
   // Environment variables
   listEnvs(uuid: string): Promise<EnvironmentVariable[]> {
     return this.request<EnvironmentVariable[]>(`/applications/${uuid}/envs`)
@@ -328,16 +375,37 @@ export class CoolifyClient {
 
   createEnv(
     uuid: string,
-    data: {
-      key: string
-      value: string
-      is_preview?: boolean
-      is_literal?: boolean
-      is_multiline?: boolean
-      is_shown_once?: boolean
-    },
+    data: EnvVarCreate,
   ): Promise<CreateResponse> {
     return this.request<CreateResponse>(`/applications/${uuid}/envs`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
+  listServiceEnvs(uuid: string): Promise<EnvironmentVariable[]> {
+    return this.request<EnvironmentVariable[]>(`/services/${uuid}/envs`)
+  }
+
+  createServiceEnv(
+    uuid: string,
+    data: EnvVarCreate,
+  ): Promise<CreateResponse> {
+    return this.request<CreateResponse>(`/services/${uuid}/envs`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
+  listDatabaseEnvs(uuid: string): Promise<EnvironmentVariable[]> {
+    return this.request<EnvironmentVariable[]>(`/databases/${uuid}/envs`)
+  }
+
+  createDatabaseEnv(
+    uuid: string,
+    data: EnvVarCreate,
+  ): Promise<CreateResponse> {
+    return this.request<CreateResponse>(`/databases/${uuid}/envs`, {
       method: 'POST',
       body: JSON.stringify(data),
     })

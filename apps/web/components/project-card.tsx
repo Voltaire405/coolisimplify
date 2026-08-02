@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { ResourceRow } from './resource-row'
 import { StatusIndicator } from './status-indicator'
 import { ChevronDown, ChevronRight, Folder, Layers } from 'lucide-react'
@@ -15,6 +15,7 @@ import {
   useEnvironments,
   type ResourceType,
   type BatchAction,
+  type RowAction,
 } from '@/hooks/use-coolify'
 
 interface ProjectCardProps {
@@ -24,11 +25,12 @@ interface ProjectCardProps {
   databases: Database[]
   selected: Set<string>
   onToggleSelect: (id: string) => void
-  onAction: (uuid: string, type: ResourceType, action: BatchAction | 'delete') => void
+  onAction: (uuid: string, type: ResourceType, action: RowAction) => void
   onBatchAdd: (uuid: string, type: ResourceType, action: BatchAction) => void
   isBusy?: (uuid: string) => boolean
-  busyAction?: (uuid: string) => BatchAction | 'delete' | undefined
+  busyAction?: (uuid: string) => RowAction | undefined
   selectionOrder?: Map<string, number>
+  refreshSignal?: number
 }
 
 const TYPE_ORDER: Record<ResourceType, number> = {
@@ -54,9 +56,22 @@ export function ProjectCard({
   isBusy,
   busyAction,
   selectionOrder,
+  refreshSignal,
 }: ProjectCardProps) {
   const [expanded, setExpanded] = useState(false)
-  const { data: environments } = useEnvironments(expanded ? project.uuid : null)
+  const { data: environments, refetch: refetchEnvironments } = useEnvironments(
+    expanded ? project.uuid : null,
+  )
+
+  // After a resource is cloned into this project, re-fetch the environment
+  // list so an already-expanded card shows the new resource without the user
+  // having to collapse and expand it again.
+  useEffect(() => {
+    if (refreshSignal !== undefined && refreshSignal > 0) {
+      void refetchEnvironments()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshSignal])
 
   const envIds = useMemo(
     () => new Set(environments.map((e) => e.id)),

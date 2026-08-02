@@ -25,11 +25,34 @@ export interface Application {
   git_repository?: string
   git_branch?: string
   git_commit_sha?: string
+  git_full_url?: string | null
   build_pack?: 'nixpacks' | 'static' | 'dockerfile' | 'dockercompose'
   ports_exposes?: string
   ports_mappings?: string | null
   base_directory?: string
   publish_directory?: string
+  dockerfile?: string | null
+  dockerfile_location?: string | null
+  dockerfile_target_build?: string | null
+  is_static?: boolean
+  is_spa?: boolean
+  source_id?: string | number | null
+  private_key_id?: string | number | null
+  static_image?: string
+  install_command?: string
+  build_command?: string
+  start_command?: string
+  custom_labels?: string | null
+  custom_docker_run_options?: string | null
+  pre_deployment_command?: string | null
+  post_deployment_command?: string | null
+  pre_deployment_command_container?: string | null
+  post_deployment_command_container?: string | null
+  redirect?: string | null
+  connect_to_docker_network?: boolean
+  is_http_basic_auth_enabled?: boolean
+  http_basic_auth_username?: string | null
+  http_basic_auth_password?: string | null
   health_check_enabled?: boolean
   health_check_path?: string
   health_check_port?: string | null
@@ -157,6 +180,25 @@ export interface ServerSetting {
   delete_unused_networks?: boolean
 }
 
+export interface GithubApp {
+  id: number
+  uuid: string
+  name: string
+  organization?: string | null
+  api_url?: string
+  html_url?: string
+  custom_user?: string
+  custom_port?: number
+  app_id?: number
+  installation_id?: number
+  client_id?: string
+  private_key_id?: number
+  is_system_wide?: boolean
+  is_public?: boolean
+  team_id?: number
+  type?: string
+}
+
 export interface EnvironmentVariable {
   id: number
   uuid: string
@@ -223,4 +265,118 @@ export interface CreateResponse {
 
 export interface DeleteResponse {
   message: string
+}
+
+export type DatabaseType =
+  | 'postgresql'
+  | 'mysql'
+  | 'mariadb'
+  | 'redis'
+  | 'keydb'
+  | 'dragonfly'
+  | 'clickhouse'
+  | 'mongodb'
+
+export interface EnvVarCreate {
+  key: string
+  value: string
+  is_preview?: boolean
+  is_literal?: boolean
+  is_multiline?: boolean
+  is_shown_once?: boolean
+}
+
+export interface ApplicationCreateBase {
+  project_uuid: string
+  server_uuid: string
+  environment_uuid: string
+  name?: string
+  description?: string
+  domains?: string
+  build_pack?: 'nixpacks' | 'static' | 'dockerfile' | 'dockercompose'
+  ports_exposes?: string
+  ports_mappings?: string
+  base_directory?: string
+  publish_directory?: string
+  is_static?: boolean
+  is_spa?: boolean
+  static_image?: string
+  install_command?: string
+  build_command?: string
+  start_command?: string
+  health_check_enabled?: boolean
+  health_check_path?: string
+  health_check_port?: string
+  health_check_host?: string
+  health_check_method?: string
+  health_check_return_code?: number
+  health_check_scheme?: string
+  health_check_response_text?: string
+  health_check_interval?: number
+  health_check_timeout?: number
+  health_check_retries?: number
+  health_check_start_period?: number
+  limits_memory?: string
+  limits_memory_swap?: string
+  limits_memory_swappiness?: number
+  limits_memory_reservation?: string
+  limits_cpus?: string
+  limits_cpuset?: string
+  limits_cpu_shares?: number
+  custom_labels?: string
+  custom_docker_run_options?: string
+  post_deployment_command?: string
+  post_deployment_command_container?: string
+  pre_deployment_command?: string
+  pre_deployment_command_container?: string
+  redirect?: string
+  connect_to_docker_network?: boolean
+  is_http_basic_auth_enabled?: boolean
+  http_basic_auth_username?: string
+  http_basic_auth_password?: string
+  instant_deploy?: boolean
+  [key: string]: unknown
+}
+
+export interface PrivateGithubAppCreate extends ApplicationCreateBase {
+  github_app_uuid: string
+  git_repository: string
+  git_branch: string
+}
+
+export interface DockerfileAppCreate extends ApplicationCreateBase {
+  dockerfile: string
+  dockerfile_location?: string
+}
+
+export interface ServiceCreate {
+  server_uuid: string
+  project_uuid: string
+  environment_uuid: string
+  name?: string
+  description?: string
+  type?: string
+  docker_compose_raw?: string
+  instant_deploy?: boolean
+}
+
+export interface DatabaseCreate {
+  server_uuid: string
+  project_uuid: string
+  environment_uuid: string
+  name?: string
+  description?: string
+  image?: string
+  is_public?: boolean
+  public_port?: number
+  public_port_timeout?: number
+  limits_memory?: string
+  limits_memory_swap?: string
+  limits_memory_swappiness?: number
+  limits_memory_reservation?: string
+  limits_cpus?: string
+  limits_cpuset?: string
+  limits_cpu_shares?: number
+  instant_deploy?: boolean
+  [key: string]: unknown
 }

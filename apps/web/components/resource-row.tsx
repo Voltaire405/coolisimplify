@@ -14,8 +14,14 @@ import {
   Loader2,
 } from 'lucide-react'
 import type { Resource } from '@/lib/types'
-import { isResourceActive, type ResourceType, type BatchAction } from '@/hooks/use-coolify'
+import {
+  isResourceActive,
+  type ResourceType,
+  type BatchAction,
+  type RowAction,
+} from '@/hooks/use-coolify'
 import { canRunAction } from '@/lib/resource-state'
+import { isCloneable } from '@/lib/clone'
 
 interface ResourceRowProps {
   resource: Resource
@@ -23,9 +29,9 @@ interface ResourceRowProps {
   selected: boolean
   selectionIndex?: number
   busy?: boolean
-  busyAction?: BatchAction | 'delete'
+  busyAction?: RowAction
   onToggleSelect: () => void
-  onAction: (action: BatchAction | 'delete') => void
+  onAction: (action: RowAction) => void
   onBatchAdd: (action: BatchAction) => void
 }
 
@@ -35,12 +41,13 @@ const typeIcons = {
   database: Database,
 } as const
 
-const ACTION_LABEL: Record<BatchAction | 'delete', string> = {
+const ACTION_LABEL: Record<RowAction, string> = {
   start: 'starting',
   stop: 'stopping',
   restart: 'restarting',
   deploy: 'deploying',
   delete: 'deleting',
+  clone: 'cloning',
 }
 
 // Reason shown in title/aria-label when an action is disabled because the
@@ -77,7 +84,7 @@ export function ResourceRow({
         : undefined
   const menuItems: Array<{
     label: string
-    action: BatchAction | 'delete'
+    action: RowAction
     disabled?: boolean
     dangerous?: boolean
   }> = [
@@ -106,6 +113,11 @@ export function ResourceRow({
           },
         ]
       : []),
+    {
+      label: 'Clone',
+      action: 'clone' as const,
+      disabled: busy || !isCloneable(resource, type),
+    },
     { label: 'Delete', action: 'delete' as const, dangerous: true, disabled: busy },
   ]
 

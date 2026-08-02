@@ -119,6 +119,7 @@ export function useEnvironments(projectUuid: string | null) {
 }
 
 export type BatchAction = 'start' | 'stop' | 'restart' | 'deploy'
+export type RowAction = BatchAction | 'delete' | 'clone'
 export type ResourceType = 'application' | 'service' | 'database'
 
 export interface BatchItem {

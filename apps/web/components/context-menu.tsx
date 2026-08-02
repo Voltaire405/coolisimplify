@@ -2,17 +2,17 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { cn } from '@workspace/ui/lib/utils'
-import type { BatchAction } from '@/hooks/use-coolify'
+import type { RowAction } from '@/hooks/use-coolify'
 
 interface ContextMenuProps {
   children: React.ReactNode
   items: Array<{
     label: string
-    action: BatchAction | 'delete'
+    action: RowAction
     disabled?: boolean
     dangerous?: boolean
   }>
-  onSelect: (action: BatchAction | 'delete') => void
+  onSelect: (action: RowAction) => void
 }
 
 export function ContextMenu({ children, items, onSelect }: ContextMenuProps) {

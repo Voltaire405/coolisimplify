@@ -1,0 +1,466 @@
+import type {
+  Application,
+  Service,
+  Database,
+  Resource,
+  ResourceType,
+  EnvironmentVariable,
+  DatabaseType,
+  GithubApp,
+  ApplicationCreateBase,
+  PrivateGithubAppCreate,
+  DockerfileAppCreate,
+  ServiceCreate,
+  DatabaseCreate,
+  EnvVarCreate,
+} from './types'
+import type { CoolifyClient } from './coolify-client'
+
+export type ApplicationKind = 'private-github-app' | 'dockerfile'
+
+export interface CloneTarget {
+  projectUuid: string
+  serverUuid: string
+  environmentUuid: string
+  name: string
+  /** Comma-separated domains; only used for applications. */
+  domains?: string
+}
+
+export interface CloneResult {
+  uuid: string
+  envCopied: number
+  envSkipped: number
+}
+
+/**
+ * Whether a resource can be cloned from the dashboard.
+ * - Applications: private GitHub repos (identified by a source/github-app id)
+ *   and Dockerfile-based apps.
+ * - Services: always cloneable.
+ * - Databases: cloneable when the image maps to a known engine.
+ */
+export function isCloneable(resource: Resource, type: ResourceType): boolean {
+  if (type === 'application') {
+    const app = resource as Application
+    return app.source_id != null || app.build_pack === 'dockerfile'
+  }
+  if (type === 'service') return true
+  return detectDatabaseType((resource as Database).image) != null
+}
+
+export function detectApplicationKind(
+  detail: Application,
+): ApplicationKind | null {
+  if (detail.source_id != null) return 'private-github-app'
+  if (detail.build_pack === 'dockerfile') return 'dockerfile'
+  return null
+}
+
+/**
+ * Resolve the real GitHub App UUID for a private-repo application. Coolify's
+ * `github_app_uuid` is the UUID of the source row, while `source_id` on the
+ * application is the numeric id — so we map it through the registered apps
+ * list (which exposes both `id` and `uuid`).
+ */
+export function resolveGithubAppUuid(
+  app: Application,
+  githubApps: GithubApp[],
+): string | null {
+  const sourceId = app.source_id
+  if (sourceId == null) return null
+  const match = githubApps.find(
+    (g) => g.uuid === String(sourceId) || g.id === Number(sourceId),
+  )
+  return match?.uuid ?? null
+}
+
+export function detectDatabaseType(
+  image?: string | null,
+): DatabaseType | null {
+  if (!image) return null
+  const i = image.toLowerCase()
+  if (/^postgres/.test(i)) return 'postgresql'
+  if (/^mysql/.test(i)) return 'mysql'
+  if (/^mariadb/.test(i)) return 'mariadb'
+  if (/^redis/.test(i)) return 'redis'
+  if (/^keydb/.test(i)) return 'keydb'
+  if (/^dragonfly/.test(i)) return 'dragonfly'
+  if (/^clickhouse/.test(i)) return 'clickhouse'
+  if (/^mongo/.test(i)) return 'mongodb'
+  return null
+}
+
+export function parseDomains(fqdn?: string | null): string {
+  // Coolify's create endpoints accept `domains` as a comma-separated string.
+  return (fqdn ?? '')
+    .split(',')
+    .map((d) => d.trim())
+    .filter(Boolean)
+    .join(',')
+}
+
+/** UTF-8-safe base64 (TextEncoder + chunked btoa avoids non-Latin1 corruption). */
+export function toBase64(input: string): string {
+  const bytes = new TextEncoder().encode(input)
+  let binary = ''
+  const CHUNK = 0x8000
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+  }
+  return btoa(binary)
+}
+
+export interface DatabaseCredentialField {
+  key: string
+  label: string
+  required: boolean
+  default?: string
+}
+
+export const DATABASE_CREDENTIAL_FIELDS: Record<
+  DatabaseType,
+  { fields: DatabaseCredentialField[] }
+> = {
+  postgresql: {
+    fields: [
+      { key: 'postgres_user', label: 'Postgres user', required: false, default: 'postgres' },
+      { key: 'postgres_password', label: 'Postgres password', required: true },
+      { key: 'postgres_db', label: 'Postgres database', required: false, default: 'postgres' },
+    ],
+  },
+  mysql: {
+    fields: [
+      { key: 'mysql_user', label: 'MySQL user', required: false, default: 'root' },
+      { key: 'mysql_password', label: 'MySQL password', required: true },
+      { key: 'mysql_database', label: 'MySQL database', required: false },
+    ],
+  },
+  mariadb: {
+    fields: [
+      { key: 'mariadb_user', label: 'MariaDB user', required: false, default: 'root' },
+      { key: 'mariadb_password', label: 'MariaDB password', required: true },
+      { key: 'mariadb_database', label: 'MariaDB database', required: false },
+    ],
+  },
+  redis: {
+    fields: [{ key: 'redis_password', label: 'Redis password', required: true }],
+  },
+  keydb: {
+    fields: [{ key: 'keydb_password', label: 'KeyDB password', required: true }],
+  },
+  dragonfly: {
+    fields: [{ key: 'dragonfly_password', label: 'Dragonfly password', required: true }],
+  },
+  clickhouse: {
+    fields: [
+      { key: 'clickhouse_admin_user', label: 'ClickHouse admin user', required: false, default: 'default' },
+      { key: 'clickhouse_admin_password', label: 'ClickHouse admin password', required: true },
+    ],
+  },
+  mongodb: {
+    fields: [
+      { key: 'mongo_initdb_root_username', label: 'MongoDB root user', required: false, default: 'root' },
+    ],
+  },
+}
+
+/**
+ * Allowlist of fields that Coolify's application create endpoints
+ * (private-github-app / dockerfile) accept. Copied verbatim from the source
+ * detail (with per-field transforms below). Any other field on the detail
+ * must NOT be sent — Coolify 422s on unknown fields.
+ */
+const APP_CREATE_ALLOWLIST = new Set([
+  'name',
+  'description',
+  'build_pack',
+  'git_repository',
+  'git_branch',
+  'ports_exposes',
+  'ports_mappings',
+  'base_directory',
+  'publish_directory',
+  'is_static',
+  'is_spa',
+  'static_image',
+  'install_command',
+  'build_command',
+  'start_command',
+  'health_check_enabled',
+  'health_check_path',
+  'health_check_port',
+  'health_check_host',
+  'health_check_method',
+  'health_check_return_code',
+  'health_check_scheme',
+  'health_check_response_text',
+  'health_check_interval',
+  'health_check_timeout',
+  'health_check_retries',
+  'health_check_start_period',
+  'limits_memory',
+  'limits_memory_swap',
+  'limits_memory_swappiness',
+  'limits_memory_reservation',
+  'limits_cpus',
+  'limits_cpuset',
+  'limits_cpu_shares',
+  'custom_labels',
+  'custom_docker_run_options',
+  'post_deployment_command',
+  'post_deployment_command_container',
+  'pre_deployment_command',
+  'pre_deployment_command_container',
+  'redirect',
+  'dockerfile',
+  'dockerfile_location',
+  'docker_compose_location',
+  'docker_compose_custom_start_command',
+  'docker_compose_custom_build_command',
+  'docker_compose_domains',
+  'watch_paths',
+  'use_build_server',
+  'is_http_basic_auth_enabled',
+  'http_basic_auth_username',
+  'http_basic_auth_password',
+  'is_force_https_enabled',
+  'is_auto_deploy_enabled',
+  'connect_to_docker_network',
+  'force_domain_override',
+  'autogenerate_domain',
+  'is_container_label_escape_enabled',
+  'is_preserve_repository_enabled',
+  'custom_network_aliases',
+])
+
+/** Fields the database create endpoints accept, common to all engines. */
+const DB_COMMON_ALLOWLIST = new Set([
+  'name',
+  'description',
+  'image',
+  'is_public',
+  'public_port',
+  'public_port_timeout',
+  'limits_memory',
+  'limits_memory_swap',
+  'limits_memory_swappiness',
+  'limits_memory_reservation',
+  'limits_cpus',
+  'limits_cpuset',
+  'limits_cpu_shares',
+])
+
+const REDIRECT_VALUES = new Set(['www', 'non-www', 'both'])
+
+function appCreateBase(
+  detail: Application,
+  target: CloneTarget,
+): ApplicationCreateBase {
+  const payload: ApplicationCreateBase = {
+    project_uuid: target.projectUuid,
+    server_uuid: target.serverUuid,
+    environment_uuid: target.environmentUuid,
+    name: target.name,
+  }
+  const source = detail as unknown as Record<string, unknown>
+  for (const key of APP_CREATE_ALLOWLIST) {
+    if (key === 'domains') continue // handled below
+    const value = source[key]
+    if (value === undefined || value === null) continue
+    // Enum/type guards: only copy values the endpoint accepts.
+    if (key === 'redirect' && !REDIRECT_VALUES.has(String(value))) continue
+    if (key === 'static_image' && value !== 'nginx:alpine') continue
+    if (key === 'dockerfile' && detail.build_pack !== 'dockerfile') continue
+    if (
+      key === 'docker_compose_domains' &&
+      detail.build_pack !== 'dockercompose'
+    )
+      continue
+    // The allowlist is a subset of ApplicationCreateBase's keys.
+    ;(payload as unknown as Record<string, unknown>)[key] = value
+  }
+  return payload
+}
+
+export function buildClonePayload(
+  detail: Application | Service | Database,
+  sourceType: ResourceType,
+  target: CloneTarget,
+  secrets: Record<string, string>,
+  githubApps: GithubApp[] = [],
+): PrivateGithubAppCreate | DockerfileAppCreate | ServiceCreate | DatabaseCreate {
+  if (sourceType === 'application') {
+    const app = detail as Application
+    const kind = detectApplicationKind(app)
+    if (!kind) {
+      throw new Error(
+        'This application cannot be cloned: only private GitHub repositories and Dockerfile apps are supported.',
+      )
+    }
+    const payload = appCreateBase(app, target)
+    payload.instant_deploy = false
+    const domains = parseDomains(target.domains ?? app.fqdn)
+    if (domains) {
+      if (app.build_pack === 'dockercompose') {
+        // Coolify rejects `domains` for dockercompose apps; it expects
+        // docker_compose_domains instead. Without service names we can't build
+        // the mapping, so drop the domains rather than 422.
+        delete payload.domains
+      } else {
+        payload.domains = domains
+      }
+    }
+    if (kind === 'private-github-app') {
+      const githubAppUuid = resolveGithubAppUuid(app, githubApps)
+      if (!githubAppUuid) {
+        throw new Error(
+          'Could not resolve the source GitHub App. Re-add it or check the source configuration.',
+        )
+      }
+      payload.github_app_uuid = githubAppUuid
+      return payload as PrivateGithubAppCreate
+    }
+    if (!app.dockerfile) {
+      throw new Error(
+        'The source application does not expose its Dockerfile content.',
+      )
+    }
+    payload.dockerfile = app.dockerfile
+    return payload as DockerfileAppCreate
+  }
+
+  if (sourceType === 'service') {
+    const svc = detail as Service
+    const payload: ServiceCreate = {
+      server_uuid: target.serverUuid,
+      project_uuid: target.projectUuid,
+      environment_uuid: target.environmentUuid,
+      name: target.name,
+    }
+    if (svc.description) payload.description = svc.description
+    if (svc.service_type) payload.type = svc.service_type
+    if (svc.docker_compose_raw) {
+      payload.docker_compose_raw = toBase64(svc.docker_compose_raw)
+    }
+    payload.instant_deploy = false
+    return payload
+  }
+
+  const db = detail as Database
+  const dbType = detectDatabaseType(db.image)
+  if (!dbType) {
+    throw new Error('This database type is not supported for cloning.')
+  }
+  const payload: DatabaseCreate = {
+    server_uuid: target.serverUuid,
+    project_uuid: target.projectUuid,
+    environment_uuid: target.environmentUuid,
+    name: target.name,
+  }
+  for (const key of DB_COMMON_ALLOWLIST) {
+    const value = (db as unknown as Record<string, unknown>)[key]
+    if (value === undefined || value === null) continue
+    payload[key] = value
+  }
+  for (const field of DATABASE_CREDENTIAL_FIELDS[dbType].fields) {
+    const value = secrets[field.key]
+    if (value !== undefined && value !== '') payload[field.key] = value
+  }
+  payload.instant_deploy = false
+  return payload
+}
+
+async function copyEnvVars(
+  client: CoolifyClient,
+  targetType: ResourceType,
+  targetUuid: string,
+  sourceEnvs: EnvironmentVariable[],
+): Promise<{ copied: number; skipped: number }> {
+  let copied = 0
+  let skipped = 0
+  for (const env of sourceEnvs) {
+    const value = env.real_value ?? env.value
+    if (!env.key || value == null || value === '') {
+      skipped += 1
+      continue
+    }
+    if (env.is_shown_once && env.real_value == null) {
+      // Secret stored once: the value is not readable back through the API.
+      skipped += 1
+      continue
+    }
+    const data: EnvVarCreate = {
+      key: env.key,
+      value,
+      is_preview: env.is_preview,
+      is_literal: env.is_literal,
+      is_multiline: env.is_multiline,
+      is_shown_once: env.is_shown_once,
+    }
+    try {
+      if (targetType === 'application') {
+        await client.createEnv(targetUuid, data)
+      } else if (targetType === 'service') {
+        await client.createServiceEnv(targetUuid, data)
+      } else {
+        await client.createDatabaseEnv(targetUuid, data)
+      }
+      copied += 1
+    } catch {
+      skipped += 1
+    }
+  }
+  return { copied, skipped }
+}
+
+export async function cloneResource(
+  client: CoolifyClient,
+  sourceType: ResourceType,
+  detail: Application | Service | Database,
+  sourceEnvs: EnvironmentVariable[],
+  target: CloneTarget,
+  secrets: Record<string, string>,
+  githubApps: GithubApp[] = [],
+): Promise<CloneResult> {
+  const payload = buildClonePayload(
+    detail,
+    sourceType,
+    target,
+    secrets,
+    githubApps,
+  )
+
+  let newUuid: string
+  if (sourceType === 'application') {
+    const app = detail as Application
+    const kind = detectApplicationKind(app)
+    if (kind === 'private-github-app') {
+      const res = await client.createApplicationFromGithubApp(
+        payload as PrivateGithubAppCreate,
+      )
+      newUuid = res.uuid
+    } else {
+      const res = await client.createApplicationFromDockerfile(
+        payload as DockerfileAppCreate,
+      )
+      newUuid = res.uuid
+    }
+  } else if (sourceType === 'service') {
+    const res = await client.createService(payload as ServiceCreate)
+    newUuid = res.uuid
+  } else {
+    const dbType = detectDatabaseType((detail as Database).image)
+    if (!dbType) throw new Error('This database type is not supported for cloning.')
+    const res = await client.createDatabase(dbType, payload as DatabaseCreate)
+    newUuid = res.uuid
+  }
+
+  const { copied, skipped } = await copyEnvVars(
+    client,
+    sourceType,
+    newUuid,
+    sourceEnvs,
+  )
+  return { uuid: newUuid, envCopied: copied, envSkipped: skipped }
+}

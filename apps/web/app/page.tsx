@@ -20,6 +20,8 @@ import {
   StopConfirmDialog,
   type DeleteOptions,
 } from '@/components/confirm-dialog'
+import { CloneDialog } from '@/components/clone-dialog'
+import type { CloneResult } from '@/lib/clone'
 import {
   Play,
   Square,
@@ -30,7 +32,7 @@ import {
   AlertCircle,
   RefreshCw,
 } from 'lucide-react'
-import type { ResourceType, BatchAction } from '@/hooks/use-coolify'
+import type { ResourceType, BatchAction, RowAction } from '@/hooks/use-coolify'
 import { cn } from '@workspace/ui/lib/utils'
 import { canRunAction } from '@/lib/resource-state'
 
@@ -108,7 +110,7 @@ export default function DashboardPage() {
   // register here so the row pill stays visible across the full lifecycle.
   type PendingAction = {
     type: ResourceType
-    action: BatchAction | 'delete'
+    action: RowAction
     startedAt: number
   }
   const [pending, setPending] = useState<Map<string, PendingAction>>(
@@ -116,7 +118,7 @@ export default function DashboardPage() {
   )
 
   const startPending = useCallback(
-    (uuid: string, type: ResourceType, action: BatchAction | 'delete') => {
+    (uuid: string, type: ResourceType, action: RowAction) => {
       setPending((prev) => {
         const next = new Map(prev)
         next.set(uuid, { type, action, startedAt: Date.now() })
@@ -140,7 +142,7 @@ export default function DashboardPage() {
     [pending],
   )
   const busyAction = useCallback(
-    (uuid: string): BatchAction | 'delete' | undefined => pending.get(uuid)?.action,
+    (uuid: string): RowAction | undefined => pending.get(uuid)?.action,
     [pending],
   )
 
@@ -168,7 +170,7 @@ export default function DashboardPage() {
     async (item: {
       resourceUuid: string
       resourceType: ResourceType
-      action: BatchAction | 'delete'
+      action: RowAction
     }): Promise<'completed' | 'timeout'> => {
       const startedAt = Date.now()
       // App deploy runs a full build pipeline; app restart_only is faster but
@@ -243,6 +245,9 @@ export default function DashboardPage() {
     | { kind: 'batch'; ids: string[]; names: string[] }
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [stopTarget, setStopTarget] = useState<StopTarget | null>(null)
+  type CloneTarget = { uuid: string; type: ResourceType; name: string }
+  const [cloneTarget, setCloneTarget] = useState<CloneTarget | null>(null)
+  const [refreshSignal, setRefreshSignal] = useState(0)
 
   const findName = useCallback(
     (uuid: string) =>
@@ -313,13 +318,14 @@ export default function DashboardPage() {
     async (
       uuid: string,
       type: ResourceType,
-      action: BatchAction | 'delete',
+      action: RowAction,
       deleteOpts?: DeleteOptions,
     ) => {
       if (!client) {
         addToast('Coolify is not configured', 'error')
         return
       }
+      if (action === 'clone') return
       if (isResourceBusy(uuid)) {
         // Another request is in flight for this resource; ignore the click.
         return
@@ -382,8 +388,12 @@ export default function DashboardPage() {
   )
 
   const handleAction = useCallback(
-    (uuid: string, type: ResourceType, action: BatchAction | 'delete') => {
+    (uuid: string, type: ResourceType, action: RowAction) => {
       if (isResourceBusy(uuid)) return
+      if (action === 'clone') {
+        setCloneTarget({ uuid, type, name: findName(uuid) })
+        return
+      }
       if (action === 'delete') {
         setDeleteTarget({ uuid, type, name: findName(uuid) })
         return
@@ -483,6 +493,20 @@ export default function DashboardPage() {
       void executeAction(target.uuid, target.type, 'delete', opts)
     },
     [deleteTarget, executeAction],
+  )
+
+  const handleCloned = useCallback(
+    (type: ResourceType, result: CloneResult) => {
+      setCloneTarget(null)
+      const envPart =
+        result.envSkipped > 0
+          ? ` (${result.envCopied} env vars copied, ${result.envSkipped} skipped)`
+          : ` (${result.envCopied} env vars copied)`
+      addToast(`Clone ${type} created stopped${envPart}`, 'success')
+      setRefreshSignal((n) => n + 1)
+      refetchByType(type)
+    },
+    [addToast, refetchByType],
   )
 
   // Resolver: when the resource's status reflects the expected outcome of a
@@ -663,6 +687,7 @@ export default function DashboardPage() {
                     isBusy={isResourceBusy}
                     busyAction={busyAction}
                     selectionOrder={selectionOrder}
+                    refreshSignal={refreshSignal}
                   />
                 ))}
               </div>
@@ -753,6 +778,18 @@ export default function DashboardPage() {
           onConfirm={confirmStop}
         />
       )}
+      {cloneTarget && (() => {
+        const { resource } = findResource(`${cloneTarget.type}:${cloneTarget.uuid}`)
+        if (!resource) return null
+        return (
+          <CloneDialog
+            source={resource}
+            sourceType={cloneTarget.type}
+            onCancel={() => setCloneTarget(null)}
+            onCloned={handleCloned}
+          />
+        )
+      })()}
 
       <div className="fixed inset-x-3 top-16 z-50 flex flex-col gap-2 sm:left-auto sm:right-4 sm:top-4 sm:w-80">
         {toasts.map((toast) => (
