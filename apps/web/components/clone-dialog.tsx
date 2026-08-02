@@ -295,22 +295,22 @@ export function CloneDialog({
               <span className="mt-1 block text-xs text-muted-foreground">
                 {isBatch ? (
                   <>
-                    Appended to each cloned resource name, e.g.{' '}
+                    Always appended to every clone name, e.g.{' '}
                     <span className="font-medium text-foreground">
                       {primary?.name ?? 'Resource'}
                       {nameSuffix || '-copy'}
                     </span>
-                    . If two clones would end up with the same name, a number is
-                    added (e.g.{' '}
+                    . If two clones would share the same name, a number is
+                    appended instead, e.g.{' '}
                     <span className="font-medium text-foreground">
                       {primary?.name ?? 'Resource'}
                       {nameSuffix || '-copy'}-2
                     </span>
-                    ).
+                    .
                   </>
                 ) : (
                   <>
-                    The clone is named after the source, e.g.{' '}
+                    Always appended to the source name, e.g.{' '}
                     <span className="font-medium text-foreground">
                       {primary?.name ?? 'Resource'}
                       {nameSuffix || '-copy'}

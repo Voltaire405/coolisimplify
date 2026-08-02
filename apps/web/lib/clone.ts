@@ -339,6 +339,7 @@ function appCreateBase(
   const source = detail as unknown as Record<string, unknown>
   for (const key of allowlist) {
     if (key === 'domains') continue // handled below
+    if (key === 'name') continue // target.name wins over the source name
     const value = source[key]
     if (value === undefined || value === null) continue
     // Enum/type guards: only copy values the endpoint accepts.
