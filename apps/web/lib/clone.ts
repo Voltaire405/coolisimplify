@@ -25,6 +25,8 @@ export interface CloneTarget {
   name: string
   /** Comma-separated domains; only used for applications. */
   domains?: string
+  /** Git branch override; defaults to the source branch. */
+  branch?: string
 }
 
 export interface CloneResult {
@@ -300,6 +302,9 @@ export function buildClonePayload(
     }
     const payload = appCreateBase(app, target)
     payload.instant_deploy = false
+    if (target.branch !== undefined) {
+      payload.git_branch = target.branch
+    }
     const domains = parseDomains(target.domains ?? app.fqdn)
     if (domains) {
       if (app.build_pack === 'dockercompose') {

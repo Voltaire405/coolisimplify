@@ -55,6 +55,7 @@ export function CloneDialog({
   const [targetEnvironmentUuid, setTargetEnvironmentUuid] = useState('')
   const [name, setName] = useState(`${source.name || 'Resource'} copy`)
   const [domains, setDomains] = useState('')
+  const [branch, setBranch] = useState('')
   const [secrets, setSecrets] = useState<Record<string, string>>({})
   const [githubApps, setGithubApps] = useState<GithubApp[]>([])
   const [githubAppsError, setGithubAppsError] = useState<string | null>(null)
@@ -117,6 +118,10 @@ export function CloneDialog({
         // Domains are intentionally left empty by default: reusing the source
         // domain when cloning into the same server would conflict (409/422).
         setDomains('')
+        if (sourceType === 'application') {
+          const app = detail as { git_branch?: string }
+          setBranch(app.git_branch ?? '')
+        }
       } catch (err) {
         if (cancelled) return
         setDetails((d) => ({
@@ -177,6 +182,7 @@ export function CloneDialog({
           environmentUuid: targetEnvironmentUuid,
           name: name.trim(),
           domains: sourceType === 'application' ? domains : undefined,
+          branch: sourceType === 'application' ? branch : undefined,
         },
         secrets,
         githubApps,
@@ -307,6 +313,20 @@ export function CloneDialog({
                   onChange={(e) => setDomains(e.target.value)}
                   spellCheck={false}
                   placeholder="https://example.com"
+                  className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-foreground/40"
+                />
+              </label>
+            )}
+
+            {kind === 'private-github-app' && (
+              <label className="block">
+                <span className="text-xs text-muted-foreground">Branch</span>
+                <input
+                  type="text"
+                  value={branch}
+                  onChange={(e) => setBranch(e.target.value)}
+                  spellCheck={false}
+                  placeholder="main"
                   className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-foreground/40"
                 />
               </label>
