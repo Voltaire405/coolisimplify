@@ -15,6 +15,7 @@ import type {
   EnvVarCreate,
 } from './types'
 import type { CoolifyClient } from './coolify-client'
+import { envValue, isValueReadable } from './envs.ts'
 
 export type ApplicationKind = 'private-github-app' | 'dockerfile'
 
@@ -537,12 +538,12 @@ async function copyEnvVars(
   let copied = 0
   let skipped = 0
   for (const env of sourceEnvs) {
-    const value = env.real_value ?? env.value
+    const value = envValue(env)
     if (!env.key || value == null || value === '') {
       skipped += 1
       continue
     }
-    if (env.is_shown_once && env.real_value == null) {
+    if (!isValueReadable(env)) {
       // Secret stored once: the value is not readable back through the API.
       skipped += 1
       continue

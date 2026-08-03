@@ -27,3 +27,11 @@ _Avoid_: Tile, list item
 **Details**:
 The properties dialog (`ResourcePropertiesDialog`) that shows the full metadata of a single resource.
 _Avoid_: Inspector, info panel
+
+**Environment Variable (Env Var)**:
+A key/value pair scoped to a Resource. It is *not* the same as an **Environment** (the project grouping) — the two terms are often conflated, but an Env Var attaches to a single Resource via `resourceable_type`/`resourceable_id`.
+_Avoid_: Env, environment setting, configuration value
+
+**Env Editor**:
+The inline, always-visible section of **Details** that lists a Resource's Environment Variables and lets the user add, edit, and delete them. Distinct from the read-only property rows above it.
+_Avoid_: Variable manager, env panel, secrets editor

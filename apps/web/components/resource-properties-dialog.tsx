@@ -4,7 +4,8 @@ import { Box, Workflow, Database, Server, GitBranch, Container, Tag, Folder, Lay
 import { ModalShell } from './confirm-dialog'
 import { CopyButton } from './copy-button'
 import { StatusIndicator } from './status-indicator'
-import { isResourceActive } from '@/hooks/use-coolify'
+import { EnvironmentVariableEditor } from './environment-variable-editor'
+import { isResourceActive, useClient } from '@/hooks/use-coolify'
 import type { Resource, ResourceType, Tag as TagType } from '@/lib/types'
 import { classifyResourceState, RESOURCE_STATE_LABEL } from '@/lib/resource-state'
 import { cn } from '@workspace/ui/lib/utils'
@@ -21,6 +22,8 @@ interface ResourcePropertiesDialogProps {
   projectName: string
   environmentName: string
   onClose: () => void
+  /** Toast sink; forwarded to the env editor for save/delete feedback. */
+  onNotify?: (message: string, type: 'success' | 'error') => void
 }
 
 function PropertyRow({
@@ -55,7 +58,9 @@ export function ResourcePropertiesDialog({
   projectName,
   environmentName,
   onClose,
+  onNotify,
 }: ResourcePropertiesDialogProps) {
+  const { client } = useClient()
   const Icon = typeIcons[type]
   const name = (resource as { name?: string }).name || 'Unnamed'
   const status = (resource as { status?: string }).status
@@ -199,6 +204,18 @@ export function ResourcePropertiesDialog({
             )}
           </PropertyRow>
         </div>
+
+        {client && (
+          <div className="mt-4 border-t border-border pt-3">
+            <EnvironmentVariableEditor
+              client={client}
+              type={type}
+              resourceUuid={resource.uuid}
+              onChanged={(message) => onNotify?.(message, 'success')}
+              onError={(message) => onNotify?.(message, 'error')}
+            />
+          </div>
+        )}
       </div>
     </ModalShell>
   )

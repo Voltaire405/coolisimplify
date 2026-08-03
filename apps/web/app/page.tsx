@@ -1052,6 +1052,7 @@ export default function DashboardPage() {
             projectName={propertiesTarget.projectName}
             environmentName={propertiesTarget.environmentName}
             onClose={() => setPropertiesTarget(null)}
+            onNotify={addToast}
           />
         )
       })()}

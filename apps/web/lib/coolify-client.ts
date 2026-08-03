@@ -14,12 +14,15 @@ import type {
   RestartResponse,
   DatabaseType,
   EnvVarCreate,
+  EnvVarUpdate,
   PrivateGithubAppCreate,
   DockerfileAppCreate,
   ServiceCreate,
   DatabaseCreate,
   DeleteOptions,
 } from './types'
+import type { ResourceType } from './types'
+import { envBasePath, envItemPath } from './envs.ts'
 
 export interface CoolifyClientOptions {
   baseUrl: string
@@ -411,6 +414,51 @@ export class CoolifyClient {
     return this.request<CreateResponse>(`/databases/${uuid}/envs`, {
       method: 'POST',
       body: JSON.stringify(data),
+    })
+  }
+
+  /** List env vars for any resource type. */
+  listEnvsFor(type: ResourceType, uuid: string): Promise<EnvironmentVariable[]> {
+    return this.request<EnvironmentVariable[]>(envBasePath(type, uuid))
+  }
+
+  /** Create an env var on any resource type. */
+  createEnvFor(
+    type: ResourceType,
+    uuid: string,
+    data: EnvVarCreate,
+  ): Promise<CreateResponse> {
+    return this.request<CreateResponse>(envBasePath(type, uuid), {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
+  /**
+   * Update a single env var on any resource type. Coolify has no
+   * `PATCH /envs/{env_uuid}` — updates go to `PATCH /{type}/{uuid}/envs` and
+   * are routed by `key` (see ADR-0003). Returns the updated EnvironmentVariable.
+   * Renaming a key is not possible here; callers must delete-then-create.
+   */
+  updateEnv(
+    type: ResourceType,
+    uuid: string,
+    data: EnvVarUpdate,
+  ): Promise<EnvironmentVariable> {
+    return this.request<EnvironmentVariable>(envBasePath(type, uuid), {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    })
+  }
+
+  /** Delete a single env var on any resource type. */
+  deleteEnv(
+    type: ResourceType,
+    uuid: string,
+    envUuid: string,
+  ): Promise<DeleteResponse> {
+    return this.request<DeleteResponse>(envItemPath(type, uuid, envUuid), {
+      method: 'DELETE',
     })
   }
 }

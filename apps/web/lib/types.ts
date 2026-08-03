@@ -314,6 +314,13 @@ export interface EnvVarCreate {
   is_shown_once?: boolean
 }
 
+/**
+ * Payload for updating an env var (`PATCH /{type}/{uuid}/envs`). Same shape as
+ * the create payload; `key` and `value` are required by Coolify, and the update
+ * is routed by `key` (see ADR-0003).
+ */
+export type EnvVarUpdate = EnvVarCreate
+
 export interface ApplicationCreateBase {
   project_uuid: string
   server_uuid: string
