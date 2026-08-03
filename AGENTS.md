@@ -13,3 +13,17 @@ Issues are triaged with the five canonical labels: `needs-triage`, `needs-info`,
 ### Domain docs
 
 Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+## Available Harness
+
+### Prism
+
+Prims allows you to run a mock server for fast testing. Run example:
+
+```
+prism mock coolify-openapi-v4.x.yaml --port 13000 --cors
+```
+
+**Important:** Always stop the mock server after finishing tests.
+
+**Note:** `prism mock -h` to see another options.

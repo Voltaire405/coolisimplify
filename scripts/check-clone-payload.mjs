@@ -113,6 +113,62 @@ const TARGET = {
 }
 const GITHUB_APPS = [{ id: 3, uuid: 'gh-app-uuid', name: 'gh' }]
 
+/**
+ * Fields the real v4.x controller accepts on create but that the synced
+ * OpenAPI file does not list yet. The controller's `$allowedFields` is the
+ * source of truth: an unknown field 422s with "This field is not allowed."
+ *
+ * https://github.com/coollabsio/coolify/blob/v4.x/app/Http/Controllers/Api/ApplicationsController.php
+ */
+const EXTRA_ALLOWED = new Set([
+  'custom_network_aliases',
+  'use_build_secrets',
+  'is_git_submodules_enabled',
+  'is_git_lfs_enabled',
+  'is_git_shallow_clone_enabled',
+  'disable_build_cache',
+  'inject_build_args_to_dockerfile',
+  'include_source_commit_in_build',
+  'is_env_sorting_enabled',
+  'is_pr_deployments_public_enabled',
+  'stop_grace_period',
+  'docker_images_to_keep',
+  'is_gzip_enabled',
+  'is_stripprefix_enabled',
+  'is_raw_compose_deployment_enabled',
+  'use_build_server',
+  'docker_compose_raw',
+  'custom_nginx_configuration',
+  'dockerfile_target_build',
+  'manual_webhook_secret_github',
+  'manual_webhook_secret_gitlab',
+  'manual_webhook_secret_bitbucket',
+  'manual_webhook_secret_gitea',
+  'tags',
+  'type',
+  'destination_uuid',
+  'is_preview_deployments_enabled',
+  'git_commit_sha',
+  'private_key_uuid',
+  'docker_registry_image_name',
+  'docker_registry_image_tag',
+  'is_force_https_enabled',
+])
+
+/**
+ * Extensions to the spec's props that are not described in the synced YAML.
+ * Keyed by path; used only for type-shape validation of fields the script
+ * copies, not to expand what the payload may legally contain.
+ */
+const EXTRA_PROPS = {
+  '/applications/private-github-app': {
+    custom_network_aliases: { type: 'string', nullable: true, enum: null },
+  },
+  '/applications/dockerfile': {
+    custom_network_aliases: { type: 'string', nullable: true, enum: null },
+  },
+}
+
 function cases() {
   const list = []
   const app = (id, overrides) => syntheticDetail('Application', { uuid: id, ...overrides })
@@ -144,6 +200,28 @@ function cases() {
       source_id: 3, build_pack: 'dockerfile', fqdn: null,
       git_repository: 'org/repo', git_branch: 'release/1.0', ports_exposes: '3000',
       dockerfile: null, custom_labels: '', dockerfile_location: '/Dockerfile',
+    }),
+    target: { ...TARGET, domains: '' },
+  })
+  // The source has custom network aliases (Docker container aliases for
+  // app-to-app traffic on the shared network); the clone must carry them.
+  list.push({
+    id: 'application/github (custom network aliases)',
+    type: 'application',
+    detail: app('a6', {
+      source_id: 3, build_pack: 'nixpacks', fqdn: 'https://a.example.com',
+      git_repository: 'org/repo', git_branch: 'main', ports_exposes: '3000',
+      custom_network_aliases: 'api,backend',
+    }),
+    target: { ...TARGET, domains: '' },
+  })
+  list.push({
+    id: 'application/dockerfile inline (custom network aliases)',
+    type: 'application',
+    detail: app('a7', {
+      source_id: null, build_pack: 'dockerfile', fqdn: null, ports_exposes: '80',
+      dockerfile: 'FROM alpine\nRUN echo hi',
+      custom_network_aliases: 'worker',
     }),
     target: { ...TARGET, domains: '' },
   })
@@ -219,7 +297,9 @@ function schemaFor(c) {
     const path = c.detail.source_id != null
       ? '/applications/private-github-app'
       : '/applications/dockerfile'
-    return createSchema(path)
+    const schema = createSchema(path)
+    schema.props = { ...schema.props, ...(EXTRA_PROPS[path] ?? {}) }
+    return schema
   }
   return createSchema(c.type === 'service' ? '/services' : DB_PATHS[c.engine])
 }
@@ -234,7 +314,7 @@ for (const c of cases()) {
     const schema = schemaFor(c)
     problems = validate(
       payload,
-      new Set(Object.keys(schema.props)),
+      new Set([...Object.keys(schema.props), ...EXTRA_ALLOWED]),
       schema.required.filter((k) => k !== 'environment_name'),
       schema.props,
     )
@@ -247,6 +327,29 @@ for (const c of cases()) {
     for (const p of problems) console.log(`        ${p}`)
   } else {
     console.log(`ok    ${c.id}`)
+  }
+}
+
+// The bug being guarded: cloning an application must carry the source's
+// custom network aliases (Docker container aliases on the shared network).
+for (const c of cases().filter((c) => c.type === 'application' && c.detail.custom_network_aliases)) {
+  let payload
+  try {
+    payload = buildClonePayload(
+      c.detail, c.type, c.target, c.secrets ?? {}, GITHUB_APPS,
+    )
+  } catch (err) {
+    failures += 1
+    console.log(`FAIL  ${c.id}: network aliases — threw: ${err.message}`)
+    continue
+  }
+  if (payload.custom_network_aliases !== c.detail.custom_network_aliases) {
+    failures += 1
+    console.log(
+      `FAIL  ${c.id}: network aliases — clone payload has custom_network_aliases=${JSON.stringify(payload.custom_network_aliases)}, expected ${JSON.stringify(c.detail.custom_network_aliases)}`,
+    )
+  } else {
+    console.log(`ok    ${c.id}: custom_network_aliases preserved`)
   }
 }
 

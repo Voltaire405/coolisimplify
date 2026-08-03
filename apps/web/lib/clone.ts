@@ -263,6 +263,7 @@ const APP_CREATE_ALLOWLIST = new Set([
   'limits_cpuset',
   'limits_cpu_shares',
   'custom_labels',
+  'custom_network_aliases',
   'custom_docker_run_options',
   'post_deployment_command',
   'post_deployment_command_container',

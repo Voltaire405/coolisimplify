@@ -43,6 +43,7 @@ export interface Application {
   build_command?: string
   start_command?: string
   custom_labels?: string | null
+  custom_network_aliases?: string | null
   custom_docker_run_options?: string | null
   pre_deployment_command?: string | null
   post_deployment_command?: string | null
@@ -351,6 +352,7 @@ export interface ApplicationCreateBase {
   limits_cpuset?: string
   limits_cpu_shares?: number
   custom_labels?: string
+  custom_network_aliases?: string
   custom_docker_run_options?: string
   post_deployment_command?: string
   post_deployment_command_container?: string
