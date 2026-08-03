@@ -16,7 +16,7 @@
 - Credenciales de BD por motor según su allowlist (p. ej. `keydb_password`, `dragonfly_password`, mongodb no acepta password).
 - Sin `as unknown as` en los casts: el payload se construye con el tipo create concreto, dejando que el compilador valide las claves.
 
-**Verificación**: `pnpm check:clone-payload`. Recorre los quince flujos de clonado (app vía GitHub App / Dockerfile / Docker Compose, servicio y los ocho motores de BD, incluida una tanda de motores mixtos), construye el payload desde un detalle sintético con **todos** los campos del schema poblados y lo valida contra el schema de request de `coolify-openapi-latest.yaml` más las reglas extra del controlador. No toca ninguna instancia: es determinista y corre en menos de un segundo.
+**Verificación**: `pnpm check:clone-payload`. Recorre los quince flujos de clonado (app vía GitHub App / Dockerfile / Docker Compose, servicio y los ocho motores de BD, incluida una tanda de motores mixtos), construye el payload desde un detalle sintético con **todos** los campos del schema poblados y lo valida contra el schema de request de `coolify-openapi-v4.x.yaml` más las reglas extra del controlador. No toca ninguna instancia: es determinista y corre en menos de un segundo.
 
 Fuentes: `scripts/check-clone-payload.mjs` y `scripts/coolify-spec.mjs`. Requiere Node 22+ por `--experimental-strip-types` (importa el `clone.ts` real, así que valida el código de producción, no una copia).
 
@@ -28,7 +28,7 @@ Cuando aparezca un 422 nuevo, el orden que funciona es: reproducirlo en este scr
 
 ### La fuente de verdad es el OpenAPI del repo, no el controlador PHP
 
-`coolify-openapi-latest.yaml` describe la versión de Coolify contra la que corre este dashboard. Un `ApplicationsController.php` descargado de `main` puede listar campos que esa versión **no** acepta todavía — `custom_network_aliases` es el caso: aparece en `$allowedFields` del controlador actual pero no existe en el schema de request del create, y enviarlo 422 la clonación de cualquier app de repo privado. Validar contra el PHP da falsos negativos; validar contra el spec del repo es lo correcto.
+`coolify-openapi-v4.x.yaml` es una copia de la fuente oficial de Coolify [`v4.x/openapi.yaml`](https://github.com/coollabsio/coolify/blob/v4.x/openapi.yaml) y describe la versión contra la que corre este dashboard. Un `ApplicationsController.php` descargado de `main` puede listar campos que esa versión **no** acepta todavía — `custom_network_aliases` es el caso: aparece en `$allowedFields` del controlador actual pero no existe en el schema de request del create, y enviarlo 422 la clonación de cualquier app de repo privado. Validar contra el PHP da falsos negativos; validar contra el spec versionado es lo correcto.
 
 ### Campos que no round-trippean entre GET y CREATE
 

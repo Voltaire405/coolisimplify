@@ -5,7 +5,9 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const YAML = join(HERE, '..', 'coolify-openapi-latest.yaml')
+// Synchronized from Coolify's v4.x source of truth:
+// https://github.com/coollabsio/coolify/blob/v4.x/openapi.yaml
+const YAML = join(HERE, '..', 'coolify-openapi-v4.x.yaml')
 const lines = readFileSync(YAML, 'utf8').split('\n')
 
 function indentOf(line) {

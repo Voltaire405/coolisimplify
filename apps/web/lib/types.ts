@@ -26,7 +26,7 @@ export interface Application {
   git_branch?: string
   git_commit_sha?: string
   git_full_url?: string | null
-  build_pack?: 'nixpacks' | 'static' | 'dockerfile' | 'dockercompose'
+  build_pack?: 'nixpacks' | 'railpack' | 'static' | 'dockerfile' | 'dockercompose'
   ports_exposes?: string
   ports_mappings?: string | null
   base_directory?: string
@@ -300,7 +300,7 @@ export interface ApplicationCreateBase {
   name?: string
   description?: string
   domains?: string
-  build_pack?: 'nixpacks' | 'static' | 'dockerfile' | 'dockercompose'
+  build_pack?: 'nixpacks' | 'railpack' | 'static' | 'dockerfile' | 'dockercompose'
   ports_exposes?: string
   ports_mappings?: string
   base_directory?: string

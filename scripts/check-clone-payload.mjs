@@ -6,7 +6,7 @@
 // GitHub App / Dockerfile / Docker Compose, service, and every database
 // engine), builds the payload from a synthetic source detail with every schema
 // field populated, and checks it against the request schema in
-// coolify-openapi-latest.yaml plus the controller's extra rules.
+// coolify-openapi-v4.x.yaml plus the controller's extra rules.
 //
 // Run with: pnpm check:clone-payload
 import { createSchema, componentSchema } from './coolify-spec.mjs'
