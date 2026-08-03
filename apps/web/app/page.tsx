@@ -8,6 +8,7 @@ import {
   useApplications,
   useServices,
   useDatabases,
+  useServers,
   useBatchQueue,
   useClient,
   isResourceActive,
@@ -15,6 +16,7 @@ import {
 import { ConfigButton } from '@/components/config-button'
 import { ProjectCard } from '@/components/project-card'
 import { BatchQueue } from '@/components/batch-queue'
+import { ResourcePropertiesDialog } from '@/components/resource-properties-dialog'
 import {
   BatchDeleteConfirmDialog,
   DeleteConfirmDialog,
@@ -70,6 +72,7 @@ export default function DashboardPage() {
     loading: dbsLoading,
     refetch: refetchDatabases,
   } = useDatabases()
+  const { data: servers } = useServers()
 
   // Coolify queues the start/stop/restart and returns 200 immediately;
   // the container takes seconds to actually transition. Re-poll several
@@ -259,6 +262,10 @@ export default function DashboardPage() {
   const [cloneTarget, setCloneTarget] = useState<CloneTarget | null>(null)
   type BatchCloneTarget = { type: ResourceType; sources: Array<{ uuid: string; name: string }> }
   const [batchCloneTarget, setBatchCloneTarget] = useState<BatchCloneTarget | null>(null)
+  const [propertiesTarget, setPropertiesTarget] = useState<{
+    uuid: string
+    type: ResourceType
+  } | null>(null)
   const [refreshSignal, setRefreshSignal] = useState(0)
 
   const findName = useCallback(
@@ -355,7 +362,7 @@ export default function DashboardPage() {
         addToast('Coolify is not configured', 'error')
         return
       }
-      if (action === 'clone') return
+      if (action === 'clone' || action === 'properties') return
       if (isResourceBusy(uuid)) {
         // Another request is in flight for this resource; ignore the click.
         return
@@ -420,6 +427,10 @@ export default function DashboardPage() {
   const handleAction = useCallback(
     (uuid: string, type: ResourceType, action: RowAction) => {
       if (isResourceBusy(uuid)) return
+      if (action === 'properties') {
+        setPropertiesTarget({ uuid, type })
+        return
+      }
       if (action === 'clone') {
         setCloneTarget({ uuid, type, name: findName(uuid) })
         return
@@ -876,6 +887,9 @@ export default function DashboardPage() {
                     onAction={handleAction}
                     onBatchAdd={handleBatchAdd}
                     onRename={handleRename}
+                    onOpenProperties={(uuid, type) =>
+                      setPropertiesTarget({ uuid, type })
+                    }
                     isBusy={isResourceBusy}
                     busyAction={busyAction}
                     selectionOrder={selectionOrder}
@@ -1020,6 +1034,20 @@ export default function DashboardPage() {
           onCloned={handleCloned}
         />
       )}
+      {propertiesTarget && (() => {
+        const { resource } = findResource(
+          `${propertiesTarget.type}:${propertiesTarget.uuid}`,
+        )
+        if (!resource) return null
+        return (
+          <ResourcePropertiesDialog
+            resource={resource}
+            type={propertiesTarget.type}
+            servers={servers}
+            onClose={() => setPropertiesTarget(null)}
+          />
+        )
+      })()}
 
       <div className="fixed inset-x-3 top-16 z-50 flex flex-col gap-2 sm:left-auto sm:right-4 sm:top-4 sm:w-80">
         {toasts.map((toast) => (

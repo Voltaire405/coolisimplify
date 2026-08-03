@@ -35,6 +35,7 @@ interface ResourceRowProps {
   onAction: (action: RowAction) => void
   onBatchAdd: (action: BatchAction) => void
   onRename: (newName: string) => Promise<boolean>
+  onOpenProperties?: () => void
 }
 
 const typeIcons = {
@@ -50,6 +51,7 @@ const ACTION_LABEL: Record<RowAction, string> = {
   deploy: 'deploying',
   delete: 'deleting',
   clone: 'cloning',
+  properties: 'properties',
 }
 
 // Reason shown in title/aria-label when an action is disabled because the
@@ -73,6 +75,7 @@ export function ResourceRow({
   onAction,
   onBatchAdd,
   onRename,
+  onOpenProperties,
 }: ResourceRowProps) {
   const status = (resource as { status?: string }).status
   const active = isResourceActive(status)
@@ -121,6 +124,11 @@ export function ResourceRow({
       action: 'clone' as const,
       disabled: busy || !isCloneable(resource, type),
     },
+    {
+      label: 'Properties',
+      action: 'properties' as const,
+      disabled: busy,
+    },
     { label: 'Delete', action: 'delete' as const, dangerous: true, disabled: busy },
   ]
 
@@ -152,27 +160,36 @@ export function ResourceRow({
           <StatusIndicator active={active} className="mt-2 shrink-0 sm:mt-0" />
           <Icon className="mt-1 h-4 w-4 shrink-0 text-muted-foreground sm:mt-0" />
           <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
-              <InlineRename name={name} busy={busy} onSubmit={onRename} />
-              <span className="shrink-0 rounded border border-border px-1 py-0 text-[10px] uppercase tracking-wider text-muted-foreground">
-                {type}
+            <button
+              type="button"
+              onClick={onOpenProperties}
+              disabled={busy || !onOpenProperties}
+              aria-label={`View properties of ${name}`}
+              title="View properties"
+              className="block w-full text-left disabled:cursor-default"
+            >
+              <span className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
+                <InlineRename name={name} busy={busy} onSubmit={onRename} />
+                <span className="shrink-0 rounded border border-border px-1 py-0 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  {type}
+                </span>
+                {busy && (
+                  <span
+                    role="status"
+                    aria-live="polite"
+                    className="inline-flex shrink-0 items-center gap-1 rounded-full border border-foreground/40 bg-foreground/5 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-foreground"
+                  >
+                    <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                    {busyAction ? ACTION_LABEL[busyAction] : 'queued'}
+                  </span>
+                )}
               </span>
-              {busy && (
-                <span
-                  role="status"
-                  aria-live="polite"
-                  className="inline-flex shrink-0 items-center gap-1 rounded-full border border-foreground/40 bg-foreground/5 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-foreground"
-                >
-                  <Loader2 className="h-2.5 w-2.5 animate-spin" />
-                  {busyAction ? ACTION_LABEL[busyAction] : 'queued'}
+              {domain && (
+                <span className="block truncate text-xs leading-5 text-muted-foreground">
+                  {domain}
                 </span>
               )}
-            </div>
-            {domain && (
-              <p className="truncate text-xs leading-5 text-muted-foreground">
-                {domain}
-              </p>
-            )}
+            </button>
           </div>
         </div>
 

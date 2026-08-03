@@ -32,6 +32,7 @@ interface ProjectCardProps {
     type: ResourceType,
     newName: string,
   ) => Promise<boolean>
+  onOpenProperties?: (uuid: string, type: ResourceType) => void
   isBusy?: (uuid: string) => boolean
   busyAction?: (uuid: string) => RowAction | undefined
   selectionOrder?: Map<string, number>
@@ -59,6 +60,7 @@ export function ProjectCard({
   onAction,
   onBatchAdd,
   onRename,
+  onOpenProperties,
   isBusy,
   busyAction,
   selectionOrder,
@@ -218,6 +220,11 @@ export function ProjectCard({
                           }
                           onRename={(newName) =>
                             onRename(resource.uuid, type, newName)
+                          }
+                          onOpenProperties={
+                            onOpenProperties
+                              ? () => onOpenProperties(resource.uuid, type)
+                              : undefined
                           }
                         />
                       )
