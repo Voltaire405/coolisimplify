@@ -11,6 +11,14 @@ export type ResourceState =
 
 export type ResourceAction = 'start' | 'stop' | 'restart' | 'deploy' | 'delete'
 
+export const RESOURCE_STATE_LABEL: Record<ResourceState, string> = {
+  running: 'Running',
+  transitioning: 'Transitioning',
+  stopped: 'Stopped',
+  error: 'Error',
+  unknown: 'Unknown',
+}
+
 const TRANSITIONING = [
   'starting',
   'restarting',
