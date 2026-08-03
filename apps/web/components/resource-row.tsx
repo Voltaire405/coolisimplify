@@ -164,41 +164,50 @@ export function ResourceRow({
           <StatusIndicator active={active} className="mt-2 shrink-0 sm:mt-0" />
           <Icon className="mt-1 h-4 w-4 shrink-0 text-muted-foreground sm:mt-0" />
           <div className="min-w-0 flex-1">
-            <button
-              type="button"
-              onClick={onOpenProperties}
-              disabled={busy || !onOpenProperties}
-              aria-label={`View properties of ${name}`}
-              title="View properties"
-              className="block w-full text-left disabled:cursor-default"
-            >
-              <span className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
-                <InlineRename name={name} busy={busy} onSubmit={onRename} />
-                <span className="shrink-0 rounded border border-border px-1 py-0 text-[10px] uppercase tracking-wider text-muted-foreground">
-                  {type}
+            <span className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
+              <InlineRename name={name} busy={busy} onSubmit={onRename} />
+              <button
+                type="button"
+                onClick={onOpenProperties}
+                disabled={busy || !onOpenProperties}
+                aria-label={`View properties of ${name}`}
+                title="View properties"
+                className="shrink-0 rounded border border-border px-1 py-0 text-[10px] uppercase tracking-wider text-muted-foreground hover:bg-muted disabled:cursor-default disabled:opacity-40"
+              >
+                {type}
+              </button>
+              {busy && (
+                <span
+                  role="status"
+                  aria-live="polite"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full border border-foreground/40 bg-foreground/5 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-foreground"
+                >
+                  <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                  {busyAction ? ACTION_LABEL[busyAction] : 'queued'}
                 </span>
-                {busy && (
-                  <span
-                    role="status"
-                    aria-live="polite"
-                    className="inline-flex shrink-0 items-center gap-1 rounded-full border border-foreground/40 bg-foreground/5 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-foreground"
-                  >
-                    <Loader2 className="h-2.5 w-2.5 animate-spin" />
-                    {busyAction ? ACTION_LABEL[busyAction] : 'queued'}
+              )}
+            </span>
+            {(domain || serverName) && (
+              <button
+                type="button"
+                onClick={onOpenProperties}
+                disabled={busy || !onOpenProperties}
+                aria-label={`View details of ${name}`}
+                title="View properties"
+                className="block w-full text-left disabled:cursor-default"
+              >
+                {domain && (
+                  <span className="block truncate text-xs leading-5 text-muted-foreground">
+                    {domain}
                   </span>
                 )}
-              </span>
-              {domain && (
-                <span className="block truncate text-xs leading-5 text-muted-foreground">
-                  {domain}
-                </span>
-              )}
-              {serverName && (
-                <span className="block truncate text-xs leading-5 text-muted-foreground">
-                  {serverName}
-                </span>
-              )}
-            </button>
+                {serverName && (
+                  <span className="block truncate text-xs leading-5 text-muted-foreground">
+                    {serverName}
+                  </span>
+                )}
+              </button>
+            )}
           </div>
         </div>
 

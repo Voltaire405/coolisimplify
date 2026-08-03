@@ -52,15 +52,17 @@ export function InlineRename({
 
   if (!editing) {
     return (
-      <span
-        onDoubleClick={start}
-        title={busy ? undefined : 'Double-click to rename'}
-        className={`truncate text-sm font-medium ${
+      <button
+        type="button"
+        onClick={start}
+        disabled={busy}
+        title={busy ? undefined : 'Click to rename'}
+        className={`truncate text-sm font-medium text-left ${
           busy ? '' : 'cursor-pointer rounded-sm hover:bg-muted'
         } ${className ?? ''}`}
       >
         {name}
-      </span>
+      </button>
     )
   }
 
