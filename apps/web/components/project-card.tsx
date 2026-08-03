@@ -25,14 +25,25 @@ interface ProjectCardProps {
   databases: Database[]
   selected: Set<string>
   onToggleSelect: (id: string) => void
-  onAction: (uuid: string, type: ResourceType, action: RowAction) => void
+  onAction: (
+    uuid: string,
+    type: ResourceType,
+    action: RowAction,
+    projectName?: string,
+    environmentName?: string,
+  ) => void
   onBatchAdd: (uuid: string, type: ResourceType, action: BatchAction) => void
   onRename: (
     uuid: string,
     type: ResourceType,
     newName: string,
   ) => Promise<boolean>
-  onOpenProperties?: (uuid: string, type: ResourceType) => void
+  onOpenProperties?: (
+    uuid: string,
+    type: ResourceType,
+    projectName: string,
+    environmentName: string,
+  ) => void
   isBusy?: (uuid: string) => boolean
   busyAction?: (uuid: string) => RowAction | undefined
   selectionOrder?: Map<string, number>
@@ -213,7 +224,13 @@ export function ProjectCard({
                           busyAction={busyAction?.(resource.uuid)}
                           onToggleSelect={() => onToggleSelect(id)}
                           onAction={(action) =>
-                            onAction(resource.uuid, type, action)
+                            onAction(
+                              resource.uuid,
+                              type,
+                              action,
+                              project.name,
+                              group.name,
+                            )
                           }
                           onBatchAdd={(action) =>
                             onBatchAdd(resource.uuid, type, action)
@@ -223,7 +240,13 @@ export function ProjectCard({
                           }
                           onOpenProperties={
                             onOpenProperties
-                              ? () => onOpenProperties(resource.uuid, type)
+                              ? () =>
+                                  onOpenProperties(
+                                    resource.uuid,
+                                    type,
+                                    project.name,
+                                    group.name,
+                                  )
                               : undefined
                           }
                         />

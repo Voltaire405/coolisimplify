@@ -81,6 +81,10 @@ export function ResourceRow({
   const active = isResourceActive(status)
   const name = (resource as { name?: string }).name || 'Unnamed'
   const domain = (resource as { fqdn?: string | null }).fqdn || undefined
+  // The API embeds the server a resource is actually deployed on at
+  // destination.server; top-level server_id isn't reliable (see ADR-0001).
+  const serverName = (resource as { destination?: { server?: { name?: string } } })
+    .destination?.server?.name
   const Icon = typeIcons[type]
   const disabledReason = (action: BatchAction) =>
     busy
@@ -187,6 +191,11 @@ export function ResourceRow({
               {domain && (
                 <span className="block truncate text-xs leading-5 text-muted-foreground">
                   {domain}
+                </span>
+              )}
+              {serverName && (
+                <span className="block truncate text-xs leading-5 text-muted-foreground">
+                  {serverName}
                 </span>
               )}
             </button>

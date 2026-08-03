@@ -263,6 +263,8 @@ export default function DashboardPage() {
   const [propertiesTarget, setPropertiesTarget] = useState<{
     uuid: string
     type: ResourceType
+    projectName: string
+    environmentName: string
   } | null>(null)
   const [refreshSignal, setRefreshSignal] = useState(0)
 
@@ -423,10 +425,16 @@ export default function DashboardPage() {
   )
 
   const handleAction = useCallback(
-    (uuid: string, type: ResourceType, action: RowAction) => {
+    (
+      uuid: string,
+      type: ResourceType,
+      action: RowAction,
+      projectName?: string,
+      environmentName?: string,
+    ) => {
       if (isResourceBusy(uuid)) return
       if (action === 'properties') {
-        setPropertiesTarget({ uuid, type })
+        setPropertiesTarget({ uuid, type, projectName: projectName ?? '', environmentName: environmentName ?? '' })
         return
       }
       if (action === 'clone') {
@@ -885,8 +893,8 @@ export default function DashboardPage() {
                     onAction={handleAction}
                     onBatchAdd={handleBatchAdd}
                     onRename={handleRename}
-                    onOpenProperties={(uuid, type) =>
-                      setPropertiesTarget({ uuid, type })
+                    onOpenProperties={(uuid, type, projectName, environmentName) =>
+                      setPropertiesTarget({ uuid, type, projectName, environmentName })
                     }
                     isBusy={isResourceBusy}
                     busyAction={busyAction}
@@ -1041,6 +1049,8 @@ export default function DashboardPage() {
           <ResourcePropertiesDialog
             resource={resource}
             type={propertiesTarget.type}
+            projectName={propertiesTarget.projectName}
+            environmentName={propertiesTarget.environmentName}
             onClose={() => setPropertiesTarget(null)}
           />
         )

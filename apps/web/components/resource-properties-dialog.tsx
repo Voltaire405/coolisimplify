@@ -1,6 +1,6 @@
 'use client'
 
-import { Box, Workflow, Database, Server, GitBranch, Container, Tag } from 'lucide-react'
+import { Box, Workflow, Database, Server, GitBranch, Container, Tag, Folder, Layers } from 'lucide-react'
 import { ModalShell } from './confirm-dialog'
 import { CopyButton } from './copy-button'
 import { StatusIndicator } from './status-indicator'
@@ -18,6 +18,8 @@ const typeIcons = {
 interface ResourcePropertiesDialogProps {
   resource: Resource
   type: ResourceType
+  projectName: string
+  environmentName: string
   onClose: () => void
 }
 
@@ -50,6 +52,8 @@ function Value({ children }: { children: React.ReactNode }) {
 export function ResourcePropertiesDialog({
   resource,
   type,
+  projectName,
+  environmentName,
   onClose,
 }: ResourcePropertiesDialogProps) {
   const Icon = typeIcons[type]
@@ -100,6 +104,14 @@ export function ResourcePropertiesDialog({
         <div className="mt-4 space-y-3">
           <PropertyRow icon={Server} label="Server">
             <Value>{serverName ?? '—'}</Value>
+          </PropertyRow>
+
+          <PropertyRow icon={Folder} label="Project">
+            <Value>{projectName || '—'}</Value>
+          </PropertyRow>
+
+          <PropertyRow icon={Layers} label="Environment">
+            <Value>{environmentName || '—'}</Value>
           </PropertyRow>
 
           {type === 'application' && showGit && (
