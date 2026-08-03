@@ -76,6 +76,7 @@ export interface Application {
   limits_cpu_shares?: number
   docker_registry_image_name?: string | null
   docker_registry_image_tag?: string | null
+  tags?: Tag[] | null
   environment_id?: number
   server_id?: number
   destination_type?: string
@@ -102,6 +103,7 @@ export interface Service {
   is_container_label_escape_enabled?: boolean
   is_container_label_readonly_enabled?: boolean
   config_hash?: string
+  tags?: Tag[] | null
   created_at?: string
   updated_at?: string
   deleted_at?: string | null
@@ -128,6 +130,7 @@ export interface Database {
   limits_cpus?: string
   limits_cpuset?: string
   limits_cpu_shares?: number
+  tags?: Tag[] | null
   created_at?: string
   updated_at?: string
   deleted_at?: string | null
@@ -197,6 +200,11 @@ export interface GithubApp {
   is_public?: boolean
   team_id?: number
   type?: string
+}
+
+export interface Tag {
+  uuid: string
+  name: string
 }
 
 export interface EnvironmentVariable {
