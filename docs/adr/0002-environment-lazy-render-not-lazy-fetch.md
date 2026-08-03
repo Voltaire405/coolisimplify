@@ -1,0 +1,5 @@
+# 0002 Environment-level collapse is lazy rendering, not lazy fetching
+
+Project-level collapse (`ProjectCard`) is lazy *fetching*: `Environment[]` isn't requested until the project expands, because Coolify exposes `GET /projects/{uuid}/environments`. Environment-level collapse cannot follow the same shape, because Coolify's `GET /applications`, `/services`, and `/databases` accept no `environment_uuid` filter (only `tag`) — resources are always fetched globally and matched to an environment client-side via `environment_id`. There is no request to defer.
+
+We therefore made Environment collapse defer only the mounting of `ResourceRow`s, not any data fetch: the grouping `useMemo` that matches resources to environments still runs for the whole project every time, and collapsing an environment only skips its rows in the DOM. Anyone extending this pattern to a new tree level should check for a matching scoped endpoint first — absent one, "collapse by default" means lazy render, not lazy query.

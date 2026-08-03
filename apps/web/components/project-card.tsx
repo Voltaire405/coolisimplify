@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
-import { ResourceRow } from './resource-row'
+import { EnvironmentGroup } from './environment-group'
 import { StatusIndicator } from './status-indicator'
 import { ChevronDown, ChevronRight, Folder, Layers } from 'lucide-react'
 import type {
@@ -206,54 +206,22 @@ export function ProjectCard({
           ) : (
             <div className="space-y-4">
               {groups.map((group) => (
-                <div key={group.name}>
-                  <h4 className="mb-2 text-xs font-medium uppercase text-muted-foreground sm:tracking-wider">
-                    {group.name}
-                  </h4>
-                  <div className="space-y-2">
-                    {group.resources.map(({ resource, type }) => {
-                      const id = `${type}:${resource.uuid}`
-                      return (
-                        <ResourceRow
-                          key={id}
-                          resource={resource}
-                          type={type}
-                          selected={selected.has(id)}
-                          selectionIndex={selectionOrder?.get(id)}
-                          busy={isBusy ? isBusy(resource.uuid) : false}
-                          busyAction={busyAction?.(resource.uuid)}
-                          onToggleSelect={() => onToggleSelect(id)}
-                          onAction={(action) =>
-                            onAction(
-                              resource.uuid,
-                              type,
-                              action,
-                              project.name,
-                              group.name,
-                            )
-                          }
-                          onBatchAdd={(action) =>
-                            onBatchAdd(resource.uuid, type, action)
-                          }
-                          onRename={(newName) =>
-                            onRename(resource.uuid, type, newName)
-                          }
-                          onOpenProperties={
-                            onOpenProperties
-                              ? () =>
-                                  onOpenProperties(
-                                    resource.uuid,
-                                    type,
-                                    project.name,
-                                    group.name,
-                                  )
-                              : undefined
-                          }
-                        />
-                      )
-                    })}
-                  </div>
-                </div>
+                <EnvironmentGroup
+                  key={group.name}
+                  name={group.name}
+                  resources={group.resources}
+                  projectName={project.name}
+                  autoExpand={groups.length === 1}
+                  selected={selected}
+                  onToggleSelect={onToggleSelect}
+                  onAction={onAction}
+                  onBatchAdd={onBatchAdd}
+                  onRename={onRename}
+                  onOpenProperties={onOpenProperties}
+                  isBusy={isBusy}
+                  busyAction={busyAction}
+                  selectionOrder={selectionOrder}
+                />
               ))}
             </div>
           )}
