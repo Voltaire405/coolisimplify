@@ -8,7 +8,6 @@ import {
   useApplications,
   useServices,
   useDatabases,
-  useServers,
   useBatchQueue,
   useClient,
   isResourceActive,
@@ -72,7 +71,6 @@ export default function DashboardPage() {
     loading: dbsLoading,
     refetch: refetchDatabases,
   } = useDatabases()
-  const { data: servers } = useServers()
 
   // Coolify queues the start/stop/restart and returns 200 immediately;
   // the container takes seconds to actually transition. Re-poll several
@@ -1043,7 +1041,6 @@ export default function DashboardPage() {
           <ResourcePropertiesDialog
             resource={resource}
             type={propertiesTarget.type}
-            servers={servers}
             onClose={() => setPropertiesTarget(null)}
           />
         )

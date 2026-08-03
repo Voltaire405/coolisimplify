@@ -5,7 +5,7 @@ import { ModalShell } from './confirm-dialog'
 import { CopyButton } from './copy-button'
 import { StatusIndicator } from './status-indicator'
 import { isResourceActive } from '@/hooks/use-coolify'
-import type { Resource, ResourceType, Server as CoolifyServer, Tag as TagType } from '@/lib/types'
+import type { Resource, ResourceType, Tag as TagType } from '@/lib/types'
 import { classifyResourceState, RESOURCE_STATE_LABEL } from '@/lib/resource-state'
 import { cn } from '@workspace/ui/lib/utils'
 
@@ -18,7 +18,6 @@ const typeIcons = {
 interface ResourcePropertiesDialogProps {
   resource: Resource
   type: ResourceType
-  servers: CoolifyServer[]
   onClose: () => void
 }
 
@@ -51,7 +50,6 @@ function Value({ children }: { children: React.ReactNode }) {
 export function ResourcePropertiesDialog({
   resource,
   type,
-  servers,
   onClose,
 }: ResourcePropertiesDialogProps) {
   const Icon = typeIcons[type]
@@ -60,8 +58,12 @@ export function ResourcePropertiesDialog({
   const state = classifyResourceState(status)
   const active = isResourceActive(status)
 
-  const serverName = servers.find((s) => s.id === (resource as { server_id?: number }).server_id)
-    ?.name
+  // The API embeds the server a resource is actually deployed on at
+  // destination.server — server_id on the resource itself isn't reliable
+  // (not present for every resource type, and Server.id from GET /servers
+  // isn't guaranteed either, so joining the two was matching arbitrarily).
+  const serverName = (resource as { destination?: { server?: { name?: string } } }).destination
+    ?.server?.name
 
   // Application-specific fields (git / docker image).
   const app = type === 'application' ? (resource as ApplicationLike) : null

@@ -81,6 +81,7 @@ export interface Application {
   server_id?: number
   destination_type?: string
   destination_id?: number
+  destination?: Destination
   created_at?: string
   updated_at?: string
   deleted_at?: string | null
@@ -96,6 +97,7 @@ export interface Service {
   server_id?: number
   destination_type?: string
   destination_id?: number
+  destination?: Destination
   docker_compose_raw?: string
   docker_compose?: string
   service_type?: string
@@ -123,6 +125,7 @@ export interface Database {
   server_id?: number
   destination_type?: string
   destination_id?: number
+  destination?: Destination
   limits_memory?: string
   limits_memory_swap?: string
   limits_memory_swappiness?: number
@@ -134,6 +137,15 @@ export interface Database {
   created_at?: string
   updated_at?: string
   deleted_at?: string | null
+}
+
+export interface Destination {
+  id: number
+  uuid: string
+  name: string
+  network: string
+  server_id: number
+  server?: Server
 }
 
 export interface Server {
