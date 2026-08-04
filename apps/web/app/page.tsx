@@ -18,7 +18,7 @@ import { ConfigButton } from '@/components/config-button'
 import { Sidebar } from '@/components/sidebar'
 import { EnvironmentSection } from '@/components/environment-section'
 import { BatchQueue } from '@/components/batch-queue'
-import { ResourcePropertiesDialog } from '@/components/resource-properties-dialog'
+import { ResourceDrawer, type DrawerTab } from '@/components/resource-drawer'
 import {
   BatchDeleteConfirmDialog,
   DeleteConfirmDialog,
@@ -41,12 +41,14 @@ import {
   Menu,
 } from 'lucide-react'
 import type { ResourceType, BatchAction, RowAction } from '@/hooks/use-coolify'
-import type { DeleteOptions, Project } from '@/lib/types'
+import type { DeleteOptions, Environment, Project } from '@/lib/types'
 import { cn } from '@workspace/ui/lib/utils'
 import { canRunAction } from '@/lib/resource-state'
 import {
   compareResources,
+  decodeDrawerTarget,
   decodeNode,
+  encodeDrawerTarget,
   encodeNode,
   TREE_EXPANDED_STORAGE_KEY,
   type ResourceWithType,
@@ -65,6 +67,21 @@ interface Section {
   projectName: string
   environmentName: string
   resources: ResourceWithType[]
+}
+
+function findDrawerContext(
+  envId: number | undefined,
+  projects: Project[],
+  environmentsByProject: Record<string, Environment[]>,
+): { projectName: string; environmentName: string } {
+  if (envId == null) return { projectName: '', environmentName: '' }
+  for (const project of projects) {
+    const env = (environmentsByProject[project.uuid] ?? []).find(
+      (e) => e.id === envId,
+    )
+    if (env) return { projectName: project.name, environmentName: env.name }
+  }
+  return { projectName: '', environmentName: '' }
 }
 
 function DashboardPage() {
@@ -344,6 +361,46 @@ function DashboardPage() {
     })
   }, [])
 
+  // Drawer state also lives in the URL: ?drawer=type:uuid&tab=details|vars.
+  const drawerTarget = useMemo(
+    () => decodeDrawerTarget(searchParams.get('drawer')),
+    [searchParams],
+  )
+  const drawerTab: DrawerTab = searchParams.get('tab') === 'vars' ? 'vars' : 'details'
+
+  const openDrawer = useCallback(
+    (type: ResourceType, uuid: string, tab: DrawerTab) => {
+      const params = new URLSearchParams(searchParams.toString())
+      params.set('drawer', encodeDrawerTarget({ type, uuid }))
+      params.set('tab', tab)
+      router.push(`${pathname}?${params.toString()}`, { scroll: false })
+    },
+    [searchParams, router, pathname],
+  )
+
+  const closeDrawer = useCallback(
+    (opts?: { replace?: boolean }) => {
+      const params = new URLSearchParams(searchParams.toString())
+      params.delete('drawer')
+      params.delete('tab')
+      const query = params.toString()
+      const url = query ? `${pathname}?${query}` : pathname
+      if (opts?.replace) router.replace(url, { scroll: false })
+      else router.push(url, { scroll: false })
+    },
+    [searchParams, router, pathname],
+  )
+
+  const setDrawerTab = useCallback(
+    (tab: DrawerTab) => {
+      const params = new URLSearchParams(searchParams.toString())
+      params.set('tab', tab)
+      // Tab switches replace instead of push so back still closes the drawer.
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false })
+    },
+    [searchParams, router, pathname],
+  )
+
   // Confirmation targets. Delete and stop never execute directly: the click
   // opens a modal and only its confirm button runs the action.
   type DeleteTarget =
@@ -362,12 +419,6 @@ function DashboardPage() {
   const [cloneTarget, setCloneTarget] = useState<CloneTarget | null>(null)
   type BatchCloneTarget = { type: ResourceType; sources: Array<{ uuid: string; name: string }> }
   const [batchCloneTarget, setBatchCloneTarget] = useState<BatchCloneTarget | null>(null)
-  const [propertiesTarget, setPropertiesTarget] = useState<{
-    uuid: string
-    type: ResourceType
-    projectName: string
-    environmentName: string
-  } | null>(null)
 
   const findName = useCallback(
     (uuid: string) =>
@@ -463,7 +514,8 @@ function DashboardPage() {
         addToast('Coolify is not configured', 'error')
         return
       }
-      if (action === 'clone' || action === 'properties') return
+      if (action === 'clone' || action === 'properties' || action === 'variables')
+        return
       if (isResourceBusy(uuid)) {
         // Another request is in flight for this resource; ignore the click.
         return
@@ -526,16 +578,14 @@ function DashboardPage() {
   )
 
   const handleAction = useCallback(
-    (
-      uuid: string,
-      type: ResourceType,
-      action: RowAction,
-      projectName?: string,
-      environmentName?: string,
-    ) => {
+    (uuid: string, type: ResourceType, action: RowAction) => {
       if (isResourceBusy(uuid)) return
       if (action === 'properties') {
-        setPropertiesTarget({ uuid, type, projectName: projectName ?? '', environmentName: environmentName ?? '' })
+        openDrawer(type, uuid, 'details')
+        return
+      }
+      if (action === 'variables') {
+        openDrawer(type, uuid, 'vars')
         return
       }
       if (action === 'clone') {
@@ -552,7 +602,7 @@ function DashboardPage() {
       }
       void executeAction(uuid, type, action)
     },
-    [executeAction, findName, isResourceBusy],
+    [executeAction, findName, isResourceBusy, openDrawer],
   )
 
   const handleBatchAdd = useCallback(
@@ -992,6 +1042,36 @@ function DashboardPage() {
           ? 'No environments in this project.'
           : 'This environment no longer exists.'
 
+  const drawerResource = useMemo(() => {
+    if (!drawerTarget) return null
+    const list =
+      drawerTarget.type === 'application'
+        ? applications
+        : drawerTarget.type === 'service'
+          ? services
+          : databases
+    const resource = list.find((r) => r.uuid === drawerTarget.uuid)
+    return resource ? { type: drawerTarget.type, resource } : null
+  }, [drawerTarget, applications, services, databases])
+
+  // The breadcrumb is derived, not passed through: the drawer can be opened
+  // from a deep link where no click ever supplied the names.
+  const drawerContext = findDrawerContext(
+    drawerResource?.resource.environment_id,
+    sortedProjects,
+    environmentsByProject,
+  )
+
+  // A deleted resource leaves a dangling drawer param; drop it once the
+  // lists have loaded and the target is confirmed gone. The loading flags
+  // start false before the first fetch, so an empty resource list means
+  // "not loaded yet", not "gone" — never clean on it.
+  useEffect(() => {
+    if (!drawerTarget || drawerResource || allLoading) return
+    if (allResources.length === 0) return
+    closeDrawer({ replace: true })
+  }, [drawerTarget, drawerResource, allLoading, allResources.length, closeDrawer])
+
   const sidebar = (
     <Sidebar
       projects={sortedProjects}
@@ -1120,8 +1200,8 @@ function DashboardPage() {
                       onAction={handleAction}
                       onBatchAdd={handleBatchAdd}
                       onRename={handleRename}
-                      onOpenProperties={(uuid, type, projectName, environmentName) =>
-                        setPropertiesTarget({ uuid, type, projectName, environmentName })
+                      onOpenProperties={(uuid, type) =>
+                        openDrawer(type, uuid, 'details')
                       }
                       isBusy={isResourceBusy}
                       busyAction={busyAction}
@@ -1135,6 +1215,21 @@ function DashboardPage() {
                 </div>
               )}
             </section>
+
+            {drawerResource && (
+              <aside className="fixed inset-y-0 right-0 z-40 w-full max-w-md overflow-y-auto border-l border-border bg-background shadow-xl lg:sticky lg:top-0 lg:z-auto lg:max-h-screen lg:w-[26rem] lg:max-w-none lg:shrink-0 lg:shadow-none">
+                <ResourceDrawer
+                  resource={drawerResource.resource}
+                  type={drawerResource.type}
+                  projectName={drawerContext.projectName}
+                  environmentName={drawerContext.environmentName}
+                  tab={drawerTab}
+                  onTabChange={setDrawerTab}
+                  onClose={() => closeDrawer()}
+                  onNotify={addToast}
+                />
+              </aside>
+            )}
           </div>
 
           {mobileNavOpen && (
@@ -1284,22 +1379,6 @@ function DashboardPage() {
           onCloned={handleCloned}
         />
       )}
-      {propertiesTarget && (() => {
-        const { resource } = findResource(
-          `${propertiesTarget.type}:${propertiesTarget.uuid}`,
-        )
-        if (!resource) return null
-        return (
-          <ResourcePropertiesDialog
-            resource={resource}
-            type={propertiesTarget.type}
-            projectName={propertiesTarget.projectName}
-            environmentName={propertiesTarget.environmentName}
-            onClose={() => setPropertiesTarget(null)}
-            onNotify={addToast}
-          />
-        )
-      })()}
 
       <div className="fixed inset-x-3 top-16 z-50 flex flex-col gap-2 sm:left-auto sm:right-4 sm:top-4 sm:w-80">
         {toasts.map((toast) => (

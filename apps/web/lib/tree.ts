@@ -36,6 +36,28 @@ export interface ResourceWithType {
   resource: Resource
 }
 
+/** Target of the Drawer, encoded in the `?drawer=` URL param as `type:uuid`. */
+export interface DrawerTarget {
+  type: ResourceType
+  uuid: string
+}
+
+export function encodeDrawerTarget(target: DrawerTarget): string {
+  return `${target.type}:${target.uuid}`
+}
+
+export function decodeDrawerTarget(raw: string | null): DrawerTarget | null {
+  if (!raw) return null
+  const [type, uuid] = raw.split(':')
+  if (
+    (type === 'application' || type === 'service' || type === 'database') &&
+    uuid
+  ) {
+    return { type, uuid }
+  }
+  return null
+}
+
 const TYPE_ORDER: Record<ResourceType, number> = {
   application: 0,
   service: 1,

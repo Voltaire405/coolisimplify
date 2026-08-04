@@ -20,13 +20,7 @@ interface EnvironmentSectionProps {
   resources: ResourceWithType[]
   selected: Set<string>
   onToggleSelect: (id: string) => void
-  onAction: (
-    uuid: string,
-    type: ResourceType,
-    action: RowAction,
-    projectName?: string,
-    environmentName?: string,
-  ) => void
+  onAction: (uuid: string, type: ResourceType, action: RowAction) => void
   onBatchAdd: (uuid: string, type: ResourceType, action: BatchAction) => void
   onRename: (
     uuid: string,
@@ -101,9 +95,7 @@ export function EnvironmentSection({
                 busy={isBusy ? isBusy(resource.uuid) : false}
                 busyAction={busyAction?.(resource.uuid)}
                 onToggleSelect={() => onToggleSelect(id)}
-                onAction={(action) =>
-                  onAction(resource.uuid, type, action, projectName, environmentName)
-                }
+                onAction={(action) => onAction(resource.uuid, type, action)}
                 onBatchAdd={(action) => onBatchAdd(resource.uuid, type, action)}
                 onRename={(newName) => onRename(resource.uuid, type, newName)}
                 onOpenProperties={

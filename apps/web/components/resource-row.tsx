@@ -52,6 +52,7 @@ const ACTION_LABEL: Record<RowAction, string> = {
   delete: 'deleting',
   clone: 'cloning',
   properties: 'properties',
+  variables: 'variables',
 }
 
 // Reason shown in title/aria-label when an action is disabled because the
@@ -129,8 +130,13 @@ export function ResourceRow({
       disabled: busy || !isCloneable(resource, type),
     },
     {
-      label: 'Properties',
+      label: 'Details',
       action: 'properties' as const,
+      disabled: busy,
+    },
+    {
+      label: 'Variables',
+      action: 'variables' as const,
       disabled: busy,
     },
     { label: 'Delete', action: 'delete' as const, dangerous: true, disabled: busy },
@@ -170,8 +176,8 @@ export function ResourceRow({
                 type="button"
                 onClick={onOpenProperties}
                 disabled={busy || !onOpenProperties}
-                aria-label={`View properties of ${name}`}
-                title="View properties"
+                aria-label={`View details of ${name}`}
+                title="View details"
                 className="shrink-0 rounded border border-border px-1 py-0 text-[10px] uppercase tracking-wider text-muted-foreground hover:bg-muted disabled:cursor-default disabled:opacity-40"
               >
                 {type}
@@ -193,7 +199,7 @@ export function ResourceRow({
                 onClick={onOpenProperties}
                 disabled={busy || !onOpenProperties}
                 aria-label={`View details of ${name}`}
-                title="View properties"
+                title="View details"
                 className="block w-full text-left disabled:cursor-default"
               >
                 <span className="block truncate text-xs leading-5 text-muted-foreground">

@@ -1,7 +1,16 @@
 'use client'
 
-import { Box, Workflow, Database, Server, GitBranch, Container, Tag, Folder, Layers } from 'lucide-react'
-import { ModalShell } from './confirm-dialog'
+import { useEffect } from 'react'
+import {
+  Box,
+  Workflow,
+  Database,
+  Server,
+  GitBranch,
+  Container,
+  Tag,
+  X,
+} from 'lucide-react'
 import { CopyButton } from './copy-button'
 import { StatusIndicator } from './status-indicator'
 import { EnvironmentVariableEditor } from './environment-variable-editor'
@@ -10,17 +19,21 @@ import type { Resource, ResourceType, Tag as TagType } from '@/lib/types'
 import { classifyResourceState, RESOURCE_STATE_LABEL } from '@/lib/resource-state'
 import { cn } from '@workspace/ui/lib/utils'
 
+export type DrawerTab = 'details' | 'vars'
+
 const typeIcons = {
   application: Box,
   service: Workflow,
   database: Database,
 } as const
 
-interface ResourcePropertiesDialogProps {
+interface ResourceDrawerProps {
   resource: Resource
   type: ResourceType
   projectName: string
   environmentName: string
+  tab: DrawerTab
+  onTabChange: (tab: DrawerTab) => void
   onClose: () => void
   /** Toast sink; forwarded to the env editor for save/delete feedback. */
   onNotify?: (message: string, type: 'success' | 'error') => void
@@ -52,14 +65,43 @@ function Value({ children }: { children: React.ReactNode }) {
   return <span className="break-words whitespace-pre-wrap">{children}</span>
 }
 
-export function ResourcePropertiesDialog({
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={cn(
+        '-mb-px border-b-2 px-3 py-1.5 text-xs font-medium',
+        active
+          ? 'border-foreground text-foreground'
+          : 'border-transparent text-muted-foreground hover:text-foreground',
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+export function ResourceDrawer({
   resource,
   type,
   projectName,
   environmentName,
+  tab,
+  onTabChange,
   onClose,
   onNotify,
-}: ResourcePropertiesDialogProps) {
+}: ResourceDrawerProps) {
   const { client } = useClient()
   const Icon = typeIcons[type]
   const name = (resource as { name?: string }).name || 'Unnamed'
@@ -67,12 +109,18 @@ export function ResourcePropertiesDialog({
   const state = classifyResourceState(status)
   const active = isResourceActive(status)
 
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
   // The API embeds the server a resource is actually deployed on at
-  // destination.server — server_id on the resource itself isn't reliable
-  // (not present for every resource type, and Server.id from GET /servers
-  // isn't guaranteed either, so joining the two was matching arbitrarily).
-  const serverName = (resource as { destination?: { server?: { name?: string } } }).destination
-    ?.server?.name
+  // destination.server (ADR-0001).
+  const serverName = (resource as { destination?: { server?: { name?: string } } })
+    .destination?.server?.name
 
   // Application-specific fields (git / docker image).
   const app = type === 'application' ? (resource as ApplicationLike) : null
@@ -90,33 +138,55 @@ export function ResourcePropertiesDialog({
     .custom_network_aliases?.trim()
   // Coolify names the container after the resource UUID; the API does not
   // expose a separate container_name field.
-  const containerName = (resource as { container_name?: string | null }).container_name?.trim() || resource.uuid
+  const containerName =
+    (resource as { container_name?: string | null }).container_name?.trim() ||
+    resource.uuid
   const tags = (resource as { tags?: TagType[] | null }).tags
 
   return (
-    <ModalShell onCancel={onClose} labelledBy="resource-properties-title">
-      <div className="flex max-h-[calc(100dvh-3rem)] flex-col overflow-y-auto">
-        <div className="flex items-center gap-2 pr-8">
-          <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <h2 id="resource-properties-title" className="min-w-0 truncate text-sm font-semibold">
-            {name}
-          </h2>
-          <span className="shrink-0 rounded border border-border px-1 py-0 text-[10px] uppercase tracking-wider text-muted-foreground">
-            {type}
-          </span>
+    <div
+      role="complementary"
+      aria-label={`Details of ${name}`}
+      className="flex min-h-full flex-col p-4"
+    >
+      <div className="flex items-start gap-2">
+        <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <h2 className="min-w-0 truncate text-sm font-semibold">{name}</h2>
+            <span className="shrink-0 rounded border border-border px-1 py-0 text-[10px] uppercase tracking-wider text-muted-foreground">
+              {type}
+            </span>
+          </div>
+          {(projectName || environmentName) && (
+            <p className="truncate text-xs text-muted-foreground">
+              {[projectName, environmentName].filter(Boolean).join(' / ')}
+            </p>
+          )}
         </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close drawer"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
 
+      <div className="mt-3 flex gap-1 border-b border-border" role="tablist">
+        <TabButton active={tab === 'details'} onClick={() => onTabChange('details')}>
+          Details
+        </TabButton>
+        <TabButton active={tab === 'vars'} onClick={() => onTabChange('vars')}>
+          Variables
+        </TabButton>
+      </div>
+
+      {tab === 'details' ? (
         <div className="mt-4 space-y-3">
           <PropertyRow icon={Server} label="Server">
             <Value>{serverName ?? '—'}</Value>
-          </PropertyRow>
-
-          <PropertyRow icon={Folder} label="Project">
-            <Value>{projectName || '—'}</Value>
-          </PropertyRow>
-
-          <PropertyRow icon={Layers} label="Environment">
-            <Value>{environmentName || '—'}</Value>
           </PropertyRow>
 
           {type === 'application' && showGit && (
@@ -139,8 +209,7 @@ export function ResourcePropertiesDialog({
                 {dockerImage}
                 {dockerImageTag && (
                   <>
-                    :
-                    <span className="text-muted-foreground">{dockerImageTag}</span>
+                    :<span className="text-muted-foreground">{dockerImageTag}</span>
                   </>
                 )}
               </Value>
@@ -151,7 +220,9 @@ export function ResourcePropertiesDialog({
             <PropertyRow icon={Box} label="Status">
               <span className="inline-flex items-center gap-2">
                 <StatusIndicator active={active} className="h-2 w-2" />
-                <span className="capitalize">{RESOURCE_STATE_LABEL[state].toLowerCase()}</span>
+                <span className="capitalize">
+                  {RESOURCE_STATE_LABEL[state].toLowerCase()}
+                </span>
               </span>
             </PropertyRow>
           )}
@@ -190,12 +261,12 @@ export function ResourcePropertiesDialog({
           <PropertyRow icon={Tag} label="Tags">
             {tags && tags.length > 0 ? (
               <span className="flex flex-wrap gap-1">
-                {tags.map((tag) => (
+                {tags.map((t) => (
                   <span
-                    key={tag.uuid}
+                    key={t.uuid}
                     className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground"
                   >
-                    {tag.name}
+                    {t.name}
                   </span>
                 ))}
               </span>
@@ -204,9 +275,9 @@ export function ResourcePropertiesDialog({
             )}
           </PropertyRow>
         </div>
-
-        {client && (
-          <div className="mt-4 border-t border-border pt-3">
+      ) : (
+        <div className="mt-4 min-h-0 flex-1">
+          {client ? (
             <EnvironmentVariableEditor
               client={client}
               type={type}
@@ -214,10 +285,14 @@ export function ResourcePropertiesDialog({
               onChanged={(message) => onNotify?.(message, 'success')}
               onError={(message) => onNotify?.(message, 'error')}
             />
-          </div>
-        )}
-      </div>
-    </ModalShell>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Coolify is not configured.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
