@@ -19,6 +19,8 @@ import { Sidebar } from '@/components/sidebar'
 import { EnvironmentSection } from '@/components/environment-section'
 import { BatchQueue } from '@/components/batch-queue'
 import { ResourceDrawer, type DrawerTab } from '@/components/resource-drawer'
+import { Toolbar, type StatusFilter, type TypeFilter } from '@/components/toolbar'
+import { CommandPalette, type PaletteItem } from '@/components/command-palette'
 import {
   BatchDeleteConfirmDialog,
   DeleteConfirmDialog,
@@ -43,7 +45,7 @@ import {
 import type { ResourceType, BatchAction, RowAction } from '@/hooks/use-coolify'
 import type { DeleteOptions, Environment, Project } from '@/lib/types'
 import { cn } from '@workspace/ui/lib/utils'
-import { canRunAction } from '@/lib/resource-state'
+import { canRunAction, classifyResourceState } from '@/lib/resource-state'
 import {
   compareResources,
   decodeDrawerTarget,
@@ -400,6 +402,26 @@ function DashboardPage() {
     },
     [searchParams, router, pathname],
   )
+
+  // Toolbar filters are view state, not navigation state: they stay local
+  // and reset on reload (only node/drawer live in the URL).
+  const [query, setQuery] = useState('')
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [problemsOnly, setProblemsOnly] = useState(false)
+  const filtersActive =
+    query.trim() !== '' ||
+    typeFilter !== 'all' ||
+    statusFilter !== 'all' ||
+    problemsOnly
+
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [highlightId, setHighlightId] = useState<string | null>(null)
+  useEffect(() => {
+    if (!highlightId) return
+    const id = window.setTimeout(() => setHighlightId(null), 2500)
+    return () => window.clearTimeout(id)
+  }, [highlightId])
 
   // Confirmation targets. Delete and stop never execute directly: the click
   // opens a modal and only its confirm button runs the action.
@@ -1042,6 +1064,138 @@ function DashboardPage() {
           ? 'No environments in this project.'
           : 'This environment no longer exists.'
 
+  const visibleSections = useMemo<Section[]>(() => {
+    if (!filtersActive) return sections
+    const q = query.trim().toLowerCase()
+    const matches = ({ type, resource }: ResourceWithType) => {
+      if (typeFilter !== 'all' && type !== typeFilter) return false
+      const status = (resource as { status?: string }).status
+      if (statusFilter === 'running' && !isResourceActive(status)) return false
+      if (statusFilter === 'stopped' && isResourceActive(status)) return false
+      if (problemsOnly) {
+        const state = classifyResourceState(status)
+        if (state !== 'stopped' && state !== 'error') return false
+      }
+      if (q) {
+        const name = (resource.name || '').toLowerCase()
+        const domain = (
+          (resource as { fqdn?: string | null }).fqdn || ''
+        ).toLowerCase()
+        const server = (
+          (resource as { destination?: { server?: { name?: string } } })
+            .destination?.server?.name || ''
+        ).toLowerCase()
+        if (!name.includes(q) && !domain.includes(q) && !server.includes(q))
+          return false
+      }
+      return true
+    }
+    return sections
+      .map((s) => ({ ...s, resources: s.resources.filter(matches) }))
+      .filter((s) => s.resources.length > 0)
+  }, [sections, filtersActive, query, typeFilter, statusFilter, problemsOnly])
+
+  const envById = useMemo(() => {
+    const map = new Map<number, { project: Project; env: Environment }>()
+    for (const project of sortedProjects) {
+      for (const env of environmentsByProject[project.uuid] ?? []) {
+        map.set(env.id, { project, env })
+      }
+    }
+    return map
+  }, [sortedProjects, environmentsByProject])
+
+  const paletteItems = useMemo<PaletteItem[]>(() => {
+    const items: PaletteItem[] = []
+    for (const project of sortedProjects) {
+      items.push({
+        id: `project:${project.uuid}`,
+        kind: 'project',
+        label: project.name,
+        node: { kind: 'project', projectUuid: project.uuid },
+      })
+      for (const env of environmentsByProject[project.uuid] ?? []) {
+        items.push({
+          id: `env:${env.uuid}`,
+          kind: 'environment',
+          label: env.name,
+          sublabel: project.name,
+          node: { kind: 'env', projectUuid: project.uuid, envUuid: env.uuid },
+        })
+      }
+    }
+    for (const { type, resource } of allResources) {
+      const ctx =
+        resource.environment_id != null
+          ? envById.get(resource.environment_id)
+          : undefined
+      const domain = (resource as { fqdn?: string | null }).fqdn || ''
+      const server =
+        (resource as { destination?: { server?: { name?: string } } })
+          .destination?.server?.name || ''
+      items.push({
+        id: `${type}:${resource.uuid}`,
+        kind: 'resource',
+        label: resource.name || 'Unnamed',
+        sublabel: ctx ? `${ctx.project.name} / ${ctx.env.name}` : undefined,
+        keywords: `${domain} ${server}`,
+        node: ctx
+          ? { kind: 'env', projectUuid: ctx.project.uuid, envUuid: ctx.env.uuid }
+          : { kind: 'all' },
+        resource: { type, uuid: resource.uuid },
+      })
+    }
+    return items
+  }, [sortedProjects, environmentsByProject, allResources, envById])
+
+  const makePaletteHref = useCallback(
+    (item: PaletteItem) => {
+      const params = new URLSearchParams()
+      const encoded = encodeNode(item.node)
+      if (encoded) params.set('node', encoded)
+      if (item.resource) {
+        params.set('drawer', encodeDrawerTarget(item.resource))
+        params.set('tab', 'details')
+      }
+      const q = params.toString()
+      return q ? `${pathname}?${q}` : pathname
+    },
+    [pathname],
+  )
+
+  const handlePaletteNavigate = useCallback(
+    (item: PaletteItem, opts: { withDrawer: boolean }) => {
+      if (item.node.kind !== 'all') {
+        const projectUuid = item.node.projectUuid
+        setExpandedProjects((prev) =>
+          prev.has(projectUuid) ? prev : new Set(prev).add(projectUuid),
+        )
+      }
+      // Single push: node and (optionally) drawer change together.
+      const params = new URLSearchParams(searchParams.toString())
+      const encoded = encodeNode(item.node)
+      if (encoded) params.set('node', encoded)
+      else params.delete('node')
+      if (item.resource && opts.withDrawer) {
+        params.set('drawer', encodeDrawerTarget(item.resource))
+        params.set('tab', 'details')
+      }
+      const q = params.toString()
+      router.push(q ? `${pathname}?${q}` : pathname, { scroll: false })
+      // A palette jump is an explicit "go to X": active toolbar filters must
+      // not hide the destination.
+      setQuery('')
+      setTypeFilter('all')
+      setStatusFilter('all')
+      setProblemsOnly(false)
+      if (item.resource) {
+        setHighlightId(`${item.resource.type}:${item.resource.uuid}`)
+      }
+      setMobileNavOpen(false)
+    },
+    [searchParams, router, pathname],
+  )
+
   const drawerResource = useMemo(() => {
     if (!drawerTarget) return null
     const list =
@@ -1181,14 +1335,26 @@ function DashboardPage() {
                 )}
               </div>
 
+              <Toolbar
+                query={query}
+                onQueryChange={setQuery}
+                typeFilter={typeFilter}
+                onTypeFilterChange={setTypeFilter}
+                statusFilter={statusFilter}
+                onStatusFilterChange={setStatusFilter}
+                problemsOnly={problemsOnly}
+                onProblemsOnlyChange={setProblemsOnly}
+                onOpenPalette={() => setPaletteOpen(true)}
+              />
+
               {(node.kind !== 'all' && !environmentsLoaded) ||
               (sections.length === 0 && allLoading) ? (
                 <div className="flex justify-center py-12">
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 </div>
-              ) : sections.length > 0 ? (
+              ) : visibleSections.length > 0 ? (
                 <div className="space-y-5">
-                  {sections.map((section) => (
+                  {visibleSections.map((section) => (
                     <EnvironmentSection
                       key={section.key}
                       title={section.title}
@@ -1206,12 +1372,17 @@ function DashboardPage() {
                       isBusy={isResourceBusy}
                       busyAction={busyAction}
                       selectionOrder={selectionOrder}
+                      highlightId={highlightId}
                     />
                   ))}
                 </div>
               ) : (
                 <div className="py-12 text-center">
-                  <p className="text-sm text-muted-foreground">{emptyMessage}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {filtersActive && sections.length > 0
+                      ? 'No resources match the current filters.'
+                      : emptyMessage}
+                  </p>
                 </div>
               )}
             </section>
@@ -1332,6 +1503,16 @@ function DashboardPage() {
         onClearAll={queue.clearAll}
         elevated={selected.size > 0}
       />
+
+      {isConfigured && (
+        <CommandPalette
+          open={paletteOpen}
+          onOpenChange={setPaletteOpen}
+          items={paletteItems}
+          onNavigate={handlePaletteNavigate}
+          makeHref={makePaletteHref}
+        />
+      )}
 
       {deleteTarget?.kind === 'single' && (
         <DeleteConfirmDialog

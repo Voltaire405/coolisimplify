@@ -1,5 +1,7 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
+import { cn } from '@workspace/ui/lib/utils'
 import { StatusIndicator, LedCard } from './status-indicator'
 import { ContextMenu } from './context-menu'
 import { InlineRename } from './inline-rename'
@@ -31,6 +33,8 @@ interface ResourceRowProps {
   selectionIndex?: number
   busy?: boolean
   busyAction?: RowAction
+  /** Pulse the row after palette navigation so the eye lands on it. */
+  highlighted?: boolean
   onToggleSelect: () => void
   onAction: (action: RowAction) => void
   onBatchAdd: (action: BatchAction) => void
@@ -72,12 +76,20 @@ export function ResourceRow({
   selectionIndex,
   busy = false,
   busyAction,
+  highlighted = false,
   onToggleSelect,
   onAction,
   onBatchAdd,
   onRename,
   onOpenProperties,
 }: ResourceRowProps) {
+  const rootRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (highlighted) {
+      rootRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    }
+  }, [highlighted])
+
   const status = (resource as { status?: string }).status
   const active = isResourceActive(status)
   const name = (resource as { name?: string }).name || 'Unnamed'
@@ -143,6 +155,13 @@ export function ResourceRow({
   ]
 
   return (
+    <div
+      ref={rootRef}
+      className={cn(
+        'scroll-mt-24 rounded-lg transition-shadow',
+        highlighted && 'ring-2 ring-foreground/50',
+      )}
+    >
     <LedCard active={active} className="px-3 py-2.5 sm:px-3.5 sm:py-1.5">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
         <div className="flex min-w-0 items-start gap-2 sm:flex-1 sm:items-center sm:gap-3">
@@ -280,5 +299,6 @@ export function ResourceRow({
         </div>
       </div>
     </LedCard>
+    </div>
   )
 }

@@ -36,6 +36,8 @@ interface EnvironmentSectionProps {
   isBusy?: (uuid: string) => boolean
   busyAction?: (uuid: string) => RowAction | undefined
   selectionOrder?: Map<string, number>
+  /** `type:uuid` of the Card to pulse after palette navigation. */
+  highlightId?: string | null
 }
 
 export function EnvironmentSection({
@@ -52,6 +54,7 @@ export function EnvironmentSection({
   isBusy,
   busyAction,
   selectionOrder,
+  highlightId,
 }: EnvironmentSectionProps) {
   const active = useMemo(
     () => resources.filter((r) => isResourceActive(r.resource.status)).length,
@@ -92,6 +95,7 @@ export function EnvironmentSection({
                 type={type}
                 selected={selected.has(id)}
                 selectionIndex={selectionOrder?.get(id)}
+                highlighted={highlightId === id}
                 busy={isBusy ? isBusy(resource.uuid) : false}
                 busyAction={busyAction?.(resource.uuid)}
                 onToggleSelect={() => onToggleSelect(id)}
