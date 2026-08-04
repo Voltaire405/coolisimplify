@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useMemo } from 'react'
 import { ResourceRow } from './resource-row'
 import { StatusIndicator } from './status-indicator'
-import { ChevronDown, ChevronRight, Layers } from 'lucide-react'
-import type { Application, Service, Database } from '@/lib/types'
+import { Layers } from 'lucide-react'
+import type { ResourceWithType } from '@/lib/tree'
 import {
   isResourceActive,
   type ResourceType,
@@ -12,16 +12,12 @@ import {
   type RowAction,
 } from '@/hooks/use-coolify'
 
-type ResourceWithType =
-  | { type: 'application'; resource: Application }
-  | { type: 'service'; resource: Service }
-  | { type: 'database'; resource: Database }
-
-interface EnvironmentGroupProps {
-  name: string
-  resources: ResourceWithType[]
+interface EnvironmentSectionProps {
+  /** Header text: the Environment name, prefixed with the Project name on aggregate views. */
+  title: string
   projectName: string
-  autoExpand: boolean
+  environmentName: string
+  resources: ResourceWithType[]
   selected: Set<string>
   onToggleSelect: (id: string) => void
   onAction: (
@@ -48,11 +44,11 @@ interface EnvironmentGroupProps {
   selectionOrder?: Map<string, number>
 }
 
-export function EnvironmentGroup({
-  name,
-  resources,
+export function EnvironmentSection({
+  title,
   projectName,
-  autoExpand,
+  environmentName,
+  resources,
   selected,
   onToggleSelect,
   onAction,
@@ -62,9 +58,7 @@ export function EnvironmentGroup({
   isBusy,
   busyAction,
   selectionOrder,
-}: EnvironmentGroupProps) {
-  const [expanded, setExpanded] = useState(autoExpand)
-
+}: EnvironmentSectionProps) {
   const active = useMemo(
     () => resources.filter((r) => isResourceActive(r.resource.status)).length,
     [resources],
@@ -72,19 +66,10 @@ export function EnvironmentGroup({
   const total = resources.length
 
   return (
-    <div>
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-2 text-left"
-        aria-expanded={expanded}
-      >
-        {expanded ? (
-          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        ) : (
-          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        )}
-        <h4 className="flex-1 truncate text-xs font-medium uppercase text-muted-foreground sm:tracking-wider">
-          {name}
+    <section>
+      <div className="flex items-center gap-2">
+        <h4 className="min-w-0 flex-1 truncate text-xs font-medium uppercase text-muted-foreground sm:tracking-wider">
+          {title}
         </h4>
         <div className="flex shrink-0 items-center gap-3 text-xs text-muted-foreground">
           <span className="flex items-center gap-1 leading-none">
@@ -96,10 +81,14 @@ export function EnvironmentGroup({
             {active}/{total}
           </span>
         </div>
-      </button>
+      </div>
 
-      {expanded && (
-        <div className="mt-2 space-y-2">
+      {total === 0 ? (
+        <p className="mt-2 rounded-lg border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
+          No resources in this environment.
+        </p>
+      ) : (
+        <div className="mt-2 space-y-1.5">
           {resources.map(({ resource, type }) => {
             const id = `${type}:${resource.uuid}`
             return (
@@ -113,14 +102,19 @@ export function EnvironmentGroup({
                 busyAction={busyAction?.(resource.uuid)}
                 onToggleSelect={() => onToggleSelect(id)}
                 onAction={(action) =>
-                  onAction(resource.uuid, type, action, projectName, name)
+                  onAction(resource.uuid, type, action, projectName, environmentName)
                 }
                 onBatchAdd={(action) => onBatchAdd(resource.uuid, type, action)}
                 onRename={(newName) => onRename(resource.uuid, type, newName)}
                 onOpenProperties={
                   onOpenProperties
                     ? () =>
-                        onOpenProperties(resource.uuid, type, projectName, name)
+                        onOpenProperties(
+                          resource.uuid,
+                          type,
+                          projectName,
+                          environmentName,
+                        )
                     : undefined
                 }
               />
@@ -128,6 +122,6 @@ export function EnvironmentGroup({
           })}
         </div>
       )}
-    </div>
+    </section>
   )
 }

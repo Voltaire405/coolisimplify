@@ -1,19 +1,22 @@
 'use client'
 
 import Image from 'next/image'
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import { Suspense, useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useSettings } from '@/hooks/use-settings'
 import {
   useProjects,
   useApplications,
   useServices,
   useDatabases,
+  useAllEnvironments,
   useBatchQueue,
   useClient,
   isResourceActive,
 } from '@/hooks/use-coolify'
+import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { ConfigButton } from '@/components/config-button'
-import { ProjectCard } from '@/components/project-card'
+import { Sidebar } from '@/components/sidebar'
+import { EnvironmentSection } from '@/components/environment-section'
 import { BatchQueue } from '@/components/batch-queue'
 import { ResourcePropertiesDialog } from '@/components/resource-properties-dialog'
 import {
@@ -35,11 +38,20 @@ import {
   Loader2,
   AlertCircle,
   RefreshCw,
+  Menu,
 } from 'lucide-react'
 import type { ResourceType, BatchAction, RowAction } from '@/hooks/use-coolify'
-import type { DeleteOptions } from '@/lib/types'
+import type { DeleteOptions, Project } from '@/lib/types'
 import { cn } from '@workspace/ui/lib/utils'
 import { canRunAction } from '@/lib/resource-state'
+import {
+  compareResources,
+  decodeNode,
+  encodeNode,
+  TREE_EXPANDED_STORAGE_KEY,
+  type ResourceWithType,
+  type TreeNode,
+} from '@/lib/tree'
 
 interface Toast {
   id: string
@@ -47,7 +59,15 @@ interface Toast {
   type: 'success' | 'error'
 }
 
-export default function DashboardPage() {
+interface Section {
+  key: string
+  title: string
+  projectName: string
+  environmentName: string
+  resources: ResourceWithType[]
+}
+
+function DashboardPage() {
   const { isConfigured } = useSettings()
   const { client } = useClient()
   const {
@@ -71,6 +91,11 @@ export default function DashboardPage() {
     loading: dbsLoading,
     refetch: refetchDatabases,
   } = useDatabases()
+  const {
+    byProject: environmentsByProject,
+    loaded: environmentsLoaded,
+    refetch: refetchAllEnvironments,
+  } = useAllEnvironments(projects)
 
   // Coolify queues the start/stop/restart and returns 200 immediately;
   // the container takes seconds to actually transition. Re-poll several
@@ -234,13 +259,90 @@ export default function DashboardPage() {
 
   const handleRefreshAll = useCallback(() => {
     void refetchProjects()
+    void refetchAllEnvironments()
     void refetchApplications()
     void refetchServices()
     void refetchDatabases()
-  }, [refetchProjects, refetchApplications, refetchServices, refetchDatabases])
+  }, [
+    refetchProjects,
+    refetchAllEnvironments,
+    refetchApplications,
+    refetchServices,
+    refetchDatabases,
+  ])
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [toasts, setToasts] = useState<Toast[]>([])
+
+  // Sidebar navigation. The selected node lives in the URL (?node=…) so
+  // back/forward and deep links work; the expanded-project set is UI noise
+  // and goes to localStorage instead.
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
+  const node = useMemo(() => decodeNode(searchParams.get('node')), [searchParams])
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
+
+  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set())
+  const [treeHydrated, setTreeHydrated] = useState(false)
+  useEffect(() => {
+    let stored: Set<string> | null = null
+    try {
+      const raw = window.localStorage.getItem(TREE_EXPANDED_STORAGE_KEY)
+      if (raw) stored = new Set(JSON.parse(raw) as string[])
+    } catch {
+      // Unreadable storage: start with everything collapsed.
+    }
+    // One-shot hydration from localStorage before the tree is interacted with.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setExpandedProjects((prev) => stored ?? prev)
+    setTreeHydrated(true)
+  }, [])
+  useEffect(() => {
+    if (!treeHydrated) return
+    window.localStorage.setItem(
+      TREE_EXPANDED_STORAGE_KEY,
+      JSON.stringify([...expandedProjects]),
+    )
+  }, [expandedProjects, treeHydrated])
+
+  // Deep links land with the tree in whatever state localStorage had; make
+  // sure the selected node's project is revealed.
+  useEffect(() => {
+    if (!treeHydrated || node.kind === 'all') return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setExpandedProjects((prev) =>
+      prev.has(node.projectUuid) ? prev : new Set(prev).add(node.projectUuid),
+    )
+  }, [node, treeHydrated])
+
+  const selectNode = useCallback(
+    (next: TreeNode) => {
+      // Selecting inside a project also reveals it in the tree.
+      if (next.kind !== 'all') {
+        setExpandedProjects((prev) =>
+          prev.has(next.projectUuid) ? prev : new Set(prev).add(next.projectUuid),
+        )
+      }
+      const params = new URLSearchParams(searchParams.toString())
+      const encoded = encodeNode(next)
+      if (encoded) params.set('node', encoded)
+      else params.delete('node')
+      const query = params.toString()
+      router.push(query ? `${pathname}?${query}` : pathname, { scroll: false })
+      setMobileNavOpen(false)
+    },
+    [searchParams, router, pathname],
+  )
+
+  const toggleProjectExpanded = useCallback((uuid: string) => {
+    setExpandedProjects((prev) => {
+      const next = new Set(prev)
+      if (next.has(uuid)) next.delete(uuid)
+      else next.add(uuid)
+      return next
+    })
+  }, [])
 
   // Confirmation targets. Delete and stop never execute directly: the click
   // opens a modal and only its confirm button runs the action.
@@ -266,7 +368,6 @@ export default function DashboardPage() {
     projectName: string
     environmentName: string
   } | null>(null)
-  const [refreshSignal, setRefreshSignal] = useState(0)
 
   const findName = useCallback(
     (uuid: string) =>
@@ -711,10 +812,10 @@ export default function DashboardPage() {
           'error',
         )
       }
-      setRefreshSignal((n) => n + 1)
+      void refetchAllEnvironments()
       refetchByType(type)
     },
-    [addToast, refetchByType],
+    [addToast, refetchAllEnvironments, refetchByType],
   )
 
   // Resolver: when the resource's status reflects the expected outcome of a
@@ -805,6 +906,105 @@ export default function DashboardPage() {
     return map
   }, [selected])
 
+  const allResources = useMemo<ResourceWithType[]>(
+    () => [
+      ...applications.map((r) => ({ type: 'application' as const, resource: r })),
+      ...services.map((r) => ({ type: 'service' as const, resource: r })),
+      ...databases.map((r) => ({ type: 'database' as const, resource: r })),
+    ],
+    [applications, services, databases],
+  )
+
+  const resourcesByEnvId = useMemo(() => {
+    const map = new Map<number, ResourceWithType[]>()
+    for (const item of allResources) {
+      const envId = item.resource.environment_id
+      if (envId == null) continue
+      const group = map.get(envId)
+      if (group) group.push(item)
+      else map.set(envId, [item])
+    }
+    for (const group of map.values()) group.sort(compareResources)
+    return map
+  }, [allResources])
+
+  const countsByEnvId = useMemo(() => {
+    const map = new Map<number, number>()
+    for (const [envId, group] of resourcesByEnvId) map.set(envId, group.length)
+    return map
+  }, [resourcesByEnvId])
+
+  const sections = useMemo<Section[]>(() => {
+    const forProject = (project: Project, withProjectPrefix: boolean): Section[] => {
+      const envs = [...(environmentsByProject[project.uuid] ?? [])].sort((a, b) =>
+        a.name.localeCompare(b.name),
+      )
+      return envs.map((env) => ({
+        key: `${project.uuid}:${env.uuid}`,
+        title: withProjectPrefix ? `${project.name} / ${env.name}` : env.name,
+        projectName: project.name,
+        environmentName: env.name,
+        resources: resourcesByEnvId.get(env.id) ?? [],
+      }))
+    }
+    if (node.kind === 'all') {
+      // Empty environments are visible in the Sidebar; repeating them all as
+      // empty headers would drown the global view.
+      return sortedProjects
+        .flatMap((p) => forProject(p, true))
+        .filter((s) => s.resources.length > 0)
+    }
+    const project = sortedProjects.find((p) => p.uuid === node.projectUuid)
+    if (!project) return []
+    const projectSections = forProject(project, false)
+    if (node.kind === 'project') return projectSections
+    return projectSections.filter(
+      (s) => s.key === `${project.uuid}:${node.envUuid}`,
+    )
+  }, [node, sortedProjects, environmentsByProject, resourcesByEnvId])
+
+  const selectedProject = useMemo(
+    () =>
+      node.kind === 'all'
+        ? null
+        : (sortedProjects.find((p) => p.uuid === node.projectUuid) ?? null),
+    [node, sortedProjects],
+  )
+
+  const mainTitle = useMemo(() => {
+    if (node.kind === 'all') return 'All resources'
+    if (!selectedProject) return 'Not found'
+    if (node.kind === 'project') return selectedProject.name
+    const envName = (environmentsByProject[selectedProject.uuid] ?? []).find(
+      (e) => e.uuid === node.envUuid,
+    )?.name
+    return envName ? `${selectedProject.name} / ${envName}` : selectedProject.name
+  }, [node, selectedProject, environmentsByProject])
+
+  const emptyMessage =
+    node.kind === 'all'
+      ? sortedProjects.length === 0
+        ? 'No projects found.'
+        : 'No resources found.'
+      : !selectedProject
+        ? 'This project no longer exists.'
+        : node.kind === 'project'
+          ? 'No environments in this project.'
+          : 'This environment no longer exists.'
+
+  const sidebar = (
+    <Sidebar
+      projects={sortedProjects}
+      environmentsByProject={environmentsByProject}
+      countsByEnvId={countsByEnvId}
+      totalCount={allResources.length}
+      node={node}
+      expanded={expandedProjects}
+      onSelect={selectNode}
+      onToggleExpand={toggleProjectExpanded}
+    />
+  )
+
   return (
     <main className="min-h-screen bg-background">
       <ConfigButton />
@@ -829,7 +1029,7 @@ export default function DashboardPage() {
       ) : (
         <>
           <div className="border-b border-border">
-            <div className="mx-auto max-w-5xl px-3 py-3 pl-14 sm:px-4 sm:py-4 sm:pl-16">
+            <div className="mx-auto max-w-7xl px-3 py-3 pl-14 sm:px-4 sm:py-4 sm:pl-16">
               <div className="flex items-start justify-between gap-3 sm:items-center">
                 <div className="flex min-w-0 items-start gap-3 sm:items-center">
                   <Image
@@ -855,6 +1055,14 @@ export default function DashboardPage() {
                     <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                   )}
                   <button
+                    onClick={() => setMobileNavOpen(true)}
+                    className="flex h-9 w-9 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted sm:hidden"
+                    title="Browse projects"
+                    aria-label="Browse projects"
+                  >
+                    <Menu className="h-4 w-4" />
+                  </button>
+                  <button
                     onClick={handleRefreshAll}
                     className="flex h-9 w-9 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted sm:h-7 sm:w-7"
                     title="Refresh now"
@@ -867,44 +1075,80 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="mx-auto max-w-5xl px-3 py-4 sm:px-4 sm:py-6">
-            {projectsError && (
-              <div className="mb-4 flex items-start gap-2 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive sm:items-center">
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 sm:mt-0" />
-                {projectsError}
+          <div className="mx-auto flex w-full max-w-7xl">
+            <aside className="hidden w-64 shrink-0 border-r border-border sm:block">
+              <div className="sticky top-0 max-h-screen overflow-y-auto p-3">
+                {sidebar}
               </div>
-            )}
+            </aside>
 
-            {sortedProjects.length === 0 && !allLoading ? (
-              <div className="py-12 text-center">
-                <p className="text-sm text-muted-foreground">No projects found.</p>
+            <section className="min-w-0 flex-1 px-3 py-4 sm:px-6 sm:py-6">
+              {projectsError && (
+                <div className="mb-4 flex items-start gap-2 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive sm:items-center">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 sm:mt-0" />
+                  {projectsError}
+                </div>
+              )}
+
+              <div className="mb-4 min-w-0">
+                <h2 className="truncate text-sm font-semibold tracking-tight">
+                  {mainTitle}
+                </h2>
+                {node.kind === 'project' && selectedProject?.description && (
+                  <p className="truncate text-xs text-muted-foreground">
+                    {selectedProject.description}
+                  </p>
+                )}
               </div>
-            ) : (
-              <div className="space-y-3">
-                {sortedProjects.map((project) => (
-                  <ProjectCard
-                    key={project.uuid}
-                    project={project}
-                    applications={applications}
-                    services={services}
-                    databases={databases}
-                    selected={selected}
-                    onToggleSelect={handleToggleSelect}
-                    onAction={handleAction}
-                    onBatchAdd={handleBatchAdd}
-                    onRename={handleRename}
-                    onOpenProperties={(uuid, type, projectName, environmentName) =>
-                      setPropertiesTarget({ uuid, type, projectName, environmentName })
-                    }
-                    isBusy={isResourceBusy}
-                    busyAction={busyAction}
-                    selectionOrder={selectionOrder}
-                    refreshSignal={refreshSignal}
-                  />
-                ))}
-              </div>
-            )}
+
+              {(node.kind !== 'all' && !environmentsLoaded) ||
+              (sections.length === 0 && allLoading) ? (
+                <div className="flex justify-center py-12">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : sections.length > 0 ? (
+                <div className="space-y-5">
+                  {sections.map((section) => (
+                    <EnvironmentSection
+                      key={section.key}
+                      title={section.title}
+                      projectName={section.projectName}
+                      environmentName={section.environmentName}
+                      resources={section.resources}
+                      selected={selected}
+                      onToggleSelect={handleToggleSelect}
+                      onAction={handleAction}
+                      onBatchAdd={handleBatchAdd}
+                      onRename={handleRename}
+                      onOpenProperties={(uuid, type, projectName, environmentName) =>
+                        setPropertiesTarget({ uuid, type, projectName, environmentName })
+                      }
+                      isBusy={isResourceBusy}
+                      busyAction={busyAction}
+                      selectionOrder={selectionOrder}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="py-12 text-center">
+                  <p className="text-sm text-muted-foreground">{emptyMessage}</p>
+                </div>
+              )}
+            </section>
           </div>
+
+          {mobileNavOpen && (
+            <div className="fixed inset-0 z-40 sm:hidden">
+              <div
+                className="absolute inset-0 bg-black/40"
+                onClick={() => setMobileNavOpen(false)}
+                aria-hidden
+              />
+              <div className="absolute inset-y-0 left-0 w-72 overflow-y-auto border-r border-border bg-background p-3 shadow-lg">
+                {sidebar}
+              </div>
+            </div>
+          )}
         </>
       )}
 
@@ -1078,5 +1322,14 @@ export default function DashboardPage() {
         ))}
       </div>
     </main>
+  )
+}
+
+export default function Page() {
+  // useSearchParams requires a Suspense boundary during prerender.
+  return (
+    <Suspense fallback={null}>
+      <DashboardPage />
+    </Suspense>
   )
 }

@@ -137,7 +137,7 @@ export function ResourceRow({
   ]
 
   return (
-    <LedCard active={active} className="px-3 py-3 sm:px-4 sm:py-2.5">
+    <LedCard active={active} className="px-3 py-2.5 sm:px-3.5 sm:py-1.5">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
         <div className="flex min-w-0 items-start gap-2 sm:flex-1 sm:items-center sm:gap-3">
           {selected && selectionIndex ? (
@@ -196,16 +196,9 @@ export function ResourceRow({
                 title="View properties"
                 className="block w-full text-left disabled:cursor-default"
               >
-                {domain && (
-                  <span className="block truncate text-xs leading-5 text-muted-foreground">
-                    {domain}
-                  </span>
-                )}
-                {serverName && (
-                  <span className="block truncate text-xs leading-5 text-muted-foreground">
-                    {serverName}
-                  </span>
-                )}
+                <span className="block truncate text-xs leading-5 text-muted-foreground">
+                  {[domain, serverName].filter(Boolean).join(' · ')}
+                </span>
               </button>
             )}
           </div>
