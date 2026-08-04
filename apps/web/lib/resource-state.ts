@@ -62,6 +62,29 @@ export function classifyResourceState(status?: string | null): ResourceState {
   return 'unknown'
 }
 
+// Status Roll-up: the worst descendant state, shown as a LED on Sidebar
+// nodes. Severity: problem (stopped/error) > transitioning > running > none.
+export type RollupState = 'problem' | 'transitioning' | 'running' | 'none'
+
+const ROLLUP_SEVERITY: Record<RollupState, number> = {
+  problem: 3,
+  transitioning: 2,
+  running: 1,
+  none: 0,
+}
+
+export function worseRollup(a: RollupState, b: RollupState): RollupState {
+  return ROLLUP_SEVERITY[a] >= ROLLUP_SEVERITY[b] ? a : b
+}
+
+export function rollupFromStatus(status?: string | null): RollupState {
+  const state = classifyResourceState(status)
+  if (state === 'stopped' || state === 'error') return 'problem'
+  if (state === 'transitioning') return 'transitioning'
+  if (state === 'running') return 'running'
+  return 'none'
+}
+
 export function canRunAction(
   action: ResourceAction,
   status?: string | null,

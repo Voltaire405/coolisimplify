@@ -45,7 +45,13 @@ import {
 import type { ResourceType, BatchAction, RowAction } from '@/hooks/use-coolify'
 import type { DeleteOptions, Environment, Project } from '@/lib/types'
 import { cn } from '@workspace/ui/lib/utils'
-import { canRunAction, classifyResourceState } from '@/lib/resource-state'
+import {
+  canRunAction,
+  classifyResourceState,
+  rollupFromStatus,
+  worseRollup,
+  type RollupState,
+} from '@/lib/resource-state'
 import {
   compareResources,
   decodeDrawerTarget,
@@ -1006,6 +1012,21 @@ function DashboardPage() {
     return map
   }, [resourcesByEnvId])
 
+  const rollupByEnvId = useMemo(() => {
+    const map = new Map<number, RollupState>()
+    for (const [envId, group] of resourcesByEnvId) {
+      let rollup: RollupState = 'none'
+      for (const { resource } of group) {
+        rollup = worseRollup(
+          rollup,
+          rollupFromStatus((resource as { status?: string }).status),
+        )
+      }
+      map.set(envId, rollup)
+    }
+    return map
+  }, [resourcesByEnvId])
+
   const sections = useMemo<Section[]>(() => {
     const forProject = (project: Project, withProjectPrefix: boolean): Section[] => {
       const envs = [...(environmentsByProject[project.uuid] ?? [])].sort((a, b) =>
@@ -1231,6 +1252,7 @@ function DashboardPage() {
       projects={sortedProjects}
       environmentsByProject={environmentsByProject}
       countsByEnvId={countsByEnvId}
+      rollupByEnvId={rollupByEnvId}
       totalCount={allResources.length}
       node={node}
       expanded={expandedProjects}
@@ -1420,10 +1442,37 @@ function DashboardPage() {
 
       {selected.size > 0 && (
         <div className="fixed inset-x-3 bottom-3 z-40 sm:left-1/2 sm:right-auto sm:bottom-4 sm:-translate-x-1/2">
-          <div className="mx-auto flex w-full max-w-md flex-wrap items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 py-2 shadow-lg sm:w-auto sm:max-w-none sm:flex-nowrap sm:px-4">
-            <span className="w-full text-center text-xs font-medium text-muted-foreground sm:mr-2 sm:w-auto">
-              {selected.size} selected
-            </span>
+          <div className="mx-auto w-full max-w-md rounded-lg border border-border bg-card px-3 py-2 shadow-lg sm:w-auto sm:max-w-2xl sm:px-4">
+            <div className="mb-2 flex max-h-24 flex-wrap items-center gap-1 overflow-y-auto">
+              <span className="mr-1 text-xs font-medium text-muted-foreground">
+                {selected.size} in queue
+              </span>
+              {Array.from(selected).map((id, index) => {
+                const uuid = id.split(':')[1] as string
+                const name = findName(uuid)
+                return (
+                  <span
+                    key={id}
+                    className="inline-flex max-w-44 items-center gap-1 rounded-full border border-border bg-background py-0.5 pl-1.5 pr-0.5 text-xs"
+                  >
+                    <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+                      {index + 1}
+                    </span>
+                    <span className="min-w-0 truncate">{name}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleSelect(id)}
+                      aria-label={`Remove ${name} from the batch queue`}
+                      title="Remove from queue"
+                      className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                )
+              })}
+            </div>
+            <div className="flex flex-wrap items-center justify-center gap-2 sm:flex-nowrap">
             <button
               onClick={() => handleBatchAction('start')}
               disabled={!!batchDisabledReason('start')}
@@ -1493,6 +1542,7 @@ function DashboardPage() {
             >
               <X className="h-3.5 w-3.5" />
             </button>
+            </div>
           </div>
         </div>
       )}

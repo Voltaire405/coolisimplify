@@ -3,12 +3,15 @@
 import { ChevronDown, ChevronRight, Folder, Layers } from 'lucide-react'
 import { cn } from '@workspace/ui/lib/utils'
 import type { Environment, Project } from '@/lib/types'
+import { worseRollup, type RollupState } from '@/lib/resource-state'
 import { sameNode, type TreeNode } from '@/lib/tree'
 
 interface SidebarProps {
   projects: Project[]
   environmentsByProject: Record<string, Environment[]>
   countsByEnvId: Map<number, number>
+  /** Status Roll-up per Environment; Project and root roll-ups derive from it. */
+  rollupByEnvId: Map<number, RollupState>
   totalCount: number
   node: TreeNode
   expanded: Set<string>
@@ -24,10 +27,32 @@ function Count({ value }: { value: number }) {
   )
 }
 
+const ROLLUP_LABEL: Record<Exclude<RollupState, 'none'>, string> = {
+  problem: 'Something is stopped or failing',
+  transitioning: 'Something is transitioning',
+  running: 'All running',
+}
+
+function RollupLed({ state }: { state: RollupState }) {
+  if (state === 'none') return null
+  return (
+    <span
+      title={ROLLUP_LABEL[state]}
+      className={cn(
+        'h-2 w-2 shrink-0 rounded-full',
+        state === 'problem' && 'bg-red-500',
+        state === 'transitioning' && 'bg-amber-500',
+        state === 'running' && 'bg-emerald-500',
+      )}
+    />
+  )
+}
+
 export function Sidebar({
   projects,
   environmentsByProject,
   countsByEnvId,
+  rollupByEnvId,
   totalCount,
   node,
   expanded,
@@ -35,6 +60,16 @@ export function Sidebar({
   onToggleExpand,
 }: SidebarProps) {
   const allSelected = node.kind === 'all'
+  const rollupOfEnvs = (envs: Environment[]): RollupState =>
+    envs.reduce<RollupState>(
+      (acc, env) => worseRollup(acc, rollupByEnvId.get(env.id) ?? 'none'),
+      'none',
+    )
+  const rootRollup = projects.reduce<RollupState>(
+    (acc, project) =>
+      worseRollup(acc, rollupOfEnvs(environmentsByProject[project.uuid] ?? [])),
+    'none',
+  )
   return (
     <nav aria-label="Projects" className="flex flex-col gap-0.5 text-sm">
       <button
@@ -47,6 +82,7 @@ export function Sidebar({
       >
         <Layers className="h-4 w-4 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate">All resources</span>
+        <RollupLed state={rootRollup} />
         <Count value={totalCount} />
       </button>
 
@@ -99,6 +135,7 @@ export function Sidebar({
               >
                 <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 flex-1 truncate">{project.name}</span>
+                <RollupLed state={rollupOfEnvs(envs)} />
                 <Count value={count} />
               </button>
             </div>
@@ -129,6 +166,7 @@ export function Sidebar({
                         <span className="min-w-0 flex-1 truncate text-[13px]">
                           {env.name}
                         </span>
+                        <RollupLed state={rollupByEnvId.get(env.id) ?? 'none'} />
                         <Count value={countsByEnvId.get(env.id) ?? 0} />
                       </button>
                     )
