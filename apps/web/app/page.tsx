@@ -1993,13 +1993,16 @@ function DashboardPage() {
           (p) => p.uuid === projectEnvDeleteTarget.projectUuid,
         )
         if (!project) return null
+        const projectEnvs = environmentsByProject[project.uuid] ?? []
+        const hasResources = projectEnvs.some(
+          (env) => (countsByEnvId.get(env.id) ?? 0) > 0,
+        )
         return (
           <DeleteProjectDialog
             projectUuid={project.uuid}
             projectName={project.name}
-            environmentCount={
-              (environmentsByProject[project.uuid] ?? []).length
-            }
+            environmentCount={projectEnvs.length}
+            hasResources={hasResources}
             onCancel={() => setProjectEnvDeleteTarget(null)}
             onDeleted={() => handleProjectDeleted(project.uuid)}
           />
