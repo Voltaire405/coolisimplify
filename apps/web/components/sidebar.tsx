@@ -1,6 +1,13 @@
 'use client'
 
-import { ChevronDown, ChevronRight, Folder, Layers, Plus } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronRight,
+  Folder,
+  Layers,
+  Plus,
+  Trash2,
+} from 'lucide-react'
 import { cn } from '@workspace/ui/lib/utils'
 import type { Environment, Project } from '@/lib/types'
 import { worseRollup, type RollupState } from '@/lib/resource-state'
@@ -19,6 +26,8 @@ interface SidebarProps {
   onToggleExpand: (projectUuid: string) => void
   onCreateProject: () => void
   onCreateEnvironment: (projectUuid: string) => void
+  onDeleteProject: (projectUuid: string) => void
+  onDeleteEnvironment: (projectUuid: string, envUuid: string) => void
 }
 
 function Count({ value }: { value: number }) {
@@ -62,6 +71,8 @@ export function Sidebar({
   onToggleExpand,
   onCreateProject,
   onCreateEnvironment,
+  onDeleteProject,
+  onDeleteEnvironment,
 }: SidebarProps) {
   const allSelected = node.kind === 'all'
   const rollupOfEnvs = (envs: Environment[]): RollupState =>
@@ -167,6 +178,15 @@ export function Sidebar({
               >
                 <Plus className="h-3.5 w-3.5" />
               </button>
+              <button
+                type="button"
+                onClick={() => onDeleteProject(project.uuid)}
+                title={`Delete project ${project.name}`}
+                aria-label={`Delete project ${project.name}`}
+                className="mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus:opacity-100"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
             </div>
             {isExpanded && (
               <div className="flex flex-col gap-0.5">
@@ -189,21 +209,37 @@ export function Sidebar({
                     }
                     const envSelected = sameNode(node, envNode)
                     return (
-                      <button
+                      <div
                         key={env.uuid}
-                        onClick={() => onSelect(envNode)}
-                        aria-current={envSelected ? 'page' : undefined}
                         className={cn(
-                          'flex min-w-0 items-center gap-2 rounded-md py-1 pl-12 pr-2 text-left hover:bg-muted/60',
-                          envSelected && 'bg-muted font-medium',
+                          'group flex items-center rounded-md hover:bg-muted/60',
+                          envSelected && 'bg-muted',
                         )}
                       >
-                        <span className="min-w-0 flex-1 truncate text-[13px]">
-                          {env.name}
-                        </span>
-                        <RollupLed state={rollupByEnvId.get(env.id) ?? 'none'} />
-                        <Count value={countsByEnvId.get(env.id) ?? 0} />
-                      </button>
+                        <button
+                          onClick={() => onSelect(envNode)}
+                          aria-current={envSelected ? 'page' : undefined}
+                          className={cn(
+                            'flex min-w-0 flex-1 items-center gap-2 rounded-md py-1 pl-12 pr-2 text-left',
+                            envSelected && 'font-medium',
+                          )}
+                        >
+                          <span className="min-w-0 flex-1 truncate text-[13px]">
+                            {env.name}
+                          </span>
+                          <RollupLed state={rollupByEnvId.get(env.id) ?? 'none'} />
+                          <Count value={countsByEnvId.get(env.id) ?? 0} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDeleteEnvironment(project.uuid, env.uuid)}
+                          title={`Delete environment ${env.name}`}
+                          aria-label={`Delete environment ${env.name}`}
+                          className="mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus:opacity-100"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </div>
                     )
                   })
                 )}

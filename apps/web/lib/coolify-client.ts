@@ -136,6 +136,18 @@ export class CoolifyClient {
     })
   }
 
+  deleteEnvironment(
+    projectUuid: string,
+    environmentNameOrUuid: string,
+  ): Promise<DeleteResponse> {
+    return this.request<DeleteResponse>(
+      `/projects/${projectUuid}/environments/${environmentNameOrUuid}`,
+      {
+        method: 'DELETE',
+      },
+    )
+  }
+
   // Applications
   listApplications(tag?: string): Promise<Application[]> {
     const qs = tag ? `?tag=${encodeURIComponent(tag)}` : ''

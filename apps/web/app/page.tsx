@@ -32,6 +32,8 @@ import { DEFAULT_LOG_LINES, type LogLineOption } from '@/lib/logs'
 import { BatchConfigDialog } from '@/components/batch-config-dialog'
 import { CreateProjectDialog } from '@/components/create-project-dialog'
 import { CreateEnvironmentDialog } from '@/components/create-environment-dialog'
+import { DeleteProjectDialog } from '@/components/delete-project-dialog'
+import { DeleteEnvironmentDialog } from '@/components/delete-environment-dialog'
 import type { BatchCloneResultItem } from '@/lib/clone'
 import { isCloneable } from '@/lib/clone'
 import {
@@ -489,6 +491,14 @@ function DashboardPage() {
     | { kind: 'environment'; projectUuid: string }
   const [createTarget, setCreateTarget] = useState<CreateTarget | null>(null)
 
+  // Delete Project / Delete Environment: one shared state, opened from the
+  // Sidebar row actions. Distinct from DeleteTarget (resource deletion).
+  type ProjectEnvDeleteTarget =
+    | { kind: 'project'; projectUuid: string }
+    | { kind: 'environment'; projectUuid: string; envUuid: string }
+  const [projectEnvDeleteTarget, setProjectEnvDeleteTarget] =
+    useState<ProjectEnvDeleteTarget | null>(null)
+
   const findName = useCallback(
     (uuid: string) =>
       applications.find((a) => a.uuid === uuid)?.name ||
@@ -593,6 +603,33 @@ function DashboardPage() {
       addToast('Environment created', 'success')
     },
     [refetchAllEnvironments, selectNode, addToast],
+  )
+
+  // Success paths for the delete dialogs: refetch the affected list, then
+  // navigate away if the deleted node (or a node inside it) was selected —
+  // project delete also covers its environments; env delete returns to its
+  // project.
+  const handleProjectDeleted = useCallback(
+    async (projectUuid: string) => {
+      setProjectEnvDeleteTarget(null)
+      await refetchProjects()
+      const wasSelected =
+        node.kind !== 'all' && node.projectUuid === projectUuid
+      if (wasSelected) selectNode({ kind: 'all' })
+      addToast('Project deleted', 'success')
+    },
+    [refetchProjects, node, selectNode, addToast],
+  )
+
+  const handleEnvironmentDeleted = useCallback(
+    async (projectUuid: string, envUuid: string) => {
+      setProjectEnvDeleteTarget(null)
+      await refetchAllEnvironments()
+      const wasSelected = node.kind === 'env' && node.envUuid === envUuid
+      if (wasSelected) selectNode({ kind: 'project', projectUuid })
+      addToast('Environment deleted', 'success')
+    },
+    [refetchAllEnvironments, node, selectNode, addToast],
   )
 
   const executeAction = useCallback(
@@ -1528,6 +1565,12 @@ function DashboardPage() {
       onCreateEnvironment={(projectUuid) =>
         setCreateTarget({ kind: 'environment', projectUuid })
       }
+      onDeleteProject={(projectUuid) =>
+        setProjectEnvDeleteTarget({ kind: 'project', projectUuid })
+      }
+      onDeleteEnvironment={(projectUuid, envUuid) =>
+        setProjectEnvDeleteTarget({ kind: 'environment', projectUuid, envUuid })
+      }
     />
   )
 
@@ -1945,6 +1988,42 @@ function DashboardPage() {
           }
         />
       )}
+      {projectEnvDeleteTarget?.kind === 'project' && (() => {
+        const project = sortedProjects.find(
+          (p) => p.uuid === projectEnvDeleteTarget.projectUuid,
+        )
+        if (!project) return null
+        return (
+          <DeleteProjectDialog
+            projectUuid={project.uuid}
+            projectName={project.name}
+            environmentCount={
+              (environmentsByProject[project.uuid] ?? []).length
+            }
+            onCancel={() => setProjectEnvDeleteTarget(null)}
+            onDeleted={() => handleProjectDeleted(project.uuid)}
+          />
+        )
+      })()}
+      {projectEnvDeleteTarget?.kind === 'environment' && (() => {
+        const project = sortedProjects.find(
+          (p) => p.uuid === projectEnvDeleteTarget.projectUuid,
+        )
+        const env = (
+          environmentsByProject[projectEnvDeleteTarget.projectUuid] ?? []
+        ).find((e) => e.uuid === projectEnvDeleteTarget.envUuid)
+        if (!project || !env) return null
+        return (
+          <DeleteEnvironmentDialog
+            projectUuid={project.uuid}
+            environmentUuid={env.uuid}
+            environmentName={env.name}
+            resourceCount={countsByEnvId.get(env.id) ?? 0}
+            onCancel={() => setProjectEnvDeleteTarget(null)}
+            onDeleted={() => handleEnvironmentDeleted(project.uuid, env.uuid)}
+          />
+        )
+      })()}
       {logsTarget && (
         <LogsDialog
           uuid={logsTarget.uuid}
