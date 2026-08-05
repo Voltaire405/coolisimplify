@@ -1,5 +1,7 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
+import { cn } from '@workspace/ui/lib/utils'
 import { StatusIndicator, LedCard } from './status-indicator'
 import { ContextMenu } from './context-menu'
 import { InlineRename } from './inline-rename'
@@ -31,6 +33,8 @@ interface ResourceRowProps {
   selectionIndex?: number
   busy?: boolean
   busyAction?: RowAction
+  /** Pulse the row after palette navigation so the eye lands on it. */
+  highlighted?: boolean
   onToggleSelect: () => void
   onAction: (action: RowAction) => void
   onBatchAdd: (action: BatchAction) => void
@@ -52,6 +56,7 @@ const ACTION_LABEL: Record<RowAction, string> = {
   delete: 'deleting',
   clone: 'cloning',
   properties: 'properties',
+  variables: 'variables',
 }
 
 // Reason shown in title/aria-label when an action is disabled because the
@@ -71,12 +76,20 @@ export function ResourceRow({
   selectionIndex,
   busy = false,
   busyAction,
+  highlighted = false,
   onToggleSelect,
   onAction,
   onBatchAdd,
   onRename,
   onOpenProperties,
 }: ResourceRowProps) {
+  const rootRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (highlighted) {
+      rootRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    }
+  }, [highlighted])
+
   const status = (resource as { status?: string }).status
   const active = isResourceActive(status)
   const name = (resource as { name?: string }).name || 'Unnamed'
@@ -129,15 +142,27 @@ export function ResourceRow({
       disabled: busy || !isCloneable(resource, type),
     },
     {
-      label: 'Properties',
+      label: 'Details',
       action: 'properties' as const,
+      disabled: busy,
+    },
+    {
+      label: 'Variables',
+      action: 'variables' as const,
       disabled: busy,
     },
     { label: 'Delete', action: 'delete' as const, dangerous: true, disabled: busy },
   ]
 
   return (
-    <LedCard active={active} className="px-3 py-3 sm:px-4 sm:py-2.5">
+    <div
+      ref={rootRef}
+      className={cn(
+        'scroll-mt-24 rounded-lg transition-shadow',
+        highlighted && 'ring-2 ring-foreground/50',
+      )}
+    >
+    <LedCard active={active} className="px-3 py-2.5 sm:px-3.5 sm:py-1.5">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
         <div className="flex min-w-0 items-start gap-2 sm:flex-1 sm:items-center sm:gap-3">
           {selected && selectionIndex ? (
@@ -170,8 +195,8 @@ export function ResourceRow({
                 type="button"
                 onClick={onOpenProperties}
                 disabled={busy || !onOpenProperties}
-                aria-label={`View properties of ${name}`}
-                title="View properties"
+                aria-label={`View details of ${name}`}
+                title="View details"
                 className="shrink-0 rounded border border-border px-1 py-0 text-[10px] uppercase tracking-wider text-muted-foreground hover:bg-muted disabled:cursor-default disabled:opacity-40"
               >
                 {type}
@@ -193,19 +218,12 @@ export function ResourceRow({
                 onClick={onOpenProperties}
                 disabled={busy || !onOpenProperties}
                 aria-label={`View details of ${name}`}
-                title="View properties"
+                title="View details"
                 className="block w-full text-left disabled:cursor-default"
               >
-                {domain && (
-                  <span className="block truncate text-xs leading-5 text-muted-foreground">
-                    {domain}
-                  </span>
-                )}
-                {serverName && (
-                  <span className="block truncate text-xs leading-5 text-muted-foreground">
-                    {serverName}
-                  </span>
-                )}
+                <span className="block truncate text-xs leading-5 text-muted-foreground">
+                  {[domain, serverName].filter(Boolean).join(' · ')}
+                </span>
               </button>
             )}
           </div>
@@ -281,5 +299,6 @@ export function ResourceRow({
         </div>
       </div>
     </LedCard>
+    </div>
   )
 }

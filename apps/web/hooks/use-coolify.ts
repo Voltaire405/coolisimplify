@@ -119,8 +119,60 @@ export function useEnvironments(projectUuid: string | null) {
   return { data, loading, refetch }
 }
 
+/**
+ * Environments for every project, keyed by project uuid. The Sidebar needs the
+ * whole tree at once (counters, empty environments, per-project sections), so
+ * unlike `useEnvironments` this fetches eagerly for all projects and re-polls
+ * on the shared interval. Resources themselves are still fetched globally and
+ * matched client-side (ADR-0002).
+ */
+export function useAllEnvironments(projects: Project[]) {
+  const { client, isConfigured } = useClient()
+  const [byProject, setByProject] = useState<Record<string, Environment[]>>({})
+  const [loaded, setLoaded] = useState(false)
+  const uuidsKey = useMemo(
+    () =>
+      projects
+        .map((p) => p.uuid)
+        .sort()
+        .join(','),
+    [projects],
+  )
+
+  const refetch = useCallback(async () => {
+    if (!client) return
+    const uuids = uuidsKey ? uuidsKey.split(',') : []
+    const entries = await Promise.all(
+      uuids.map(async (uuid) => {
+        try {
+          return [uuid, await client.listEnvironments(uuid)] as const
+        } catch {
+          return [uuid, [] as Environment[]] as const
+        }
+      }),
+    )
+    setByProject(Object.fromEntries(entries))
+    setLoaded(true)
+  }, [client, uuidsKey])
+
+  useEffect(() => {
+    if (!isConfigured) {
+      // Settings were cleared: drop stale data.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setByProject({})
+      setLoaded(false)
+      return
+    }
+    void refetch()
+    const id = setInterval(() => void refetch(), REFRESH_INTERVAL)
+    return () => clearInterval(id)
+  }, [refetch, isConfigured])
+
+  return { byProject, loaded, refetch }
+}
+
 export type BatchAction = 'start' | 'stop' | 'restart' | 'deploy' | 'delete'
-export type RowAction = BatchAction | 'clone' | 'properties'
+export type RowAction = BatchAction | 'clone' | 'properties' | 'variables'
 export type ResourceType = 'application' | 'service' | 'database'
 
 export interface BatchItem {
