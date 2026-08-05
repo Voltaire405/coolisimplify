@@ -30,6 +30,8 @@ import { CloneDialog } from '@/components/clone-dialog'
 import { LogsDialog } from '@/components/logs-dialog'
 import { DEFAULT_LOG_LINES, type LogLineOption } from '@/lib/logs'
 import { BatchConfigDialog } from '@/components/batch-config-dialog'
+import { CreateProjectDialog } from '@/components/create-project-dialog'
+import { CreateEnvironmentDialog } from '@/components/create-environment-dialog'
 import type { BatchCloneResultItem } from '@/lib/clone'
 import { isCloneable } from '@/lib/clone'
 import {
@@ -480,6 +482,13 @@ function DashboardPage() {
   const [logLines, setLogLines] = useState<LogLineOption>(DEFAULT_LOG_LINES)
   const [logTimestamps, setLogTimestamps] = useState(false)
 
+  // Create Project / Create Environment: one shared state, opened from the
+  // Sidebar affordances and the main-area empty states.
+  type CreateTarget =
+    | { kind: 'project' }
+    | { kind: 'environment'; projectUuid: string }
+  const [createTarget, setCreateTarget] = useState<CreateTarget | null>(null)
+
   const findName = useCallback(
     (uuid: string) =>
       applications.find((a) => a.uuid === uuid)?.name ||
@@ -562,6 +571,29 @@ function DashboardPage() {
       return next
     })
   }, [])
+
+  // Success paths for the create dialogs: refetch the affected list, then
+  // navigate to the new node once it is visible (avoiding a transient
+  // "no longer exists" empty state); navigating also reveals its project.
+  const handleProjectCreated = useCallback(
+    async (projectUuid: string) => {
+      setCreateTarget(null)
+      await refetchProjects()
+      selectNode({ kind: 'project', projectUuid })
+      addToast('Project created', 'success')
+    },
+    [refetchProjects, selectNode, addToast],
+  )
+
+  const handleEnvironmentCreated = useCallback(
+    async (projectUuid: string, environmentUuid: string) => {
+      setCreateTarget(null)
+      await refetchAllEnvironments()
+      selectNode({ kind: 'env', projectUuid, envUuid: environmentUuid })
+      addToast('Environment created', 'success')
+    },
+    [refetchAllEnvironments, selectNode, addToast],
+  )
 
   const executeAction = useCallback(
     async (
@@ -1492,6 +1524,10 @@ function DashboardPage() {
       expanded={expandedProjects}
       onSelect={selectNode}
       onToggleExpand={toggleProjectExpanded}
+      onCreateProject={() => setCreateTarget({ kind: 'project' })}
+      onCreateEnvironment={(projectUuid) =>
+        setCreateTarget({ kind: 'environment', projectUuid })
+      }
     />
   )
 
@@ -1640,6 +1676,29 @@ function DashboardPage() {
                       ? 'No resources match the current filters.'
                       : emptyMessage}
                   </p>
+                  {node.kind === 'all' && sortedProjects.length === 0 ? (
+                    <button
+                      onClick={() => setCreateTarget({ kind: 'project' })}
+                      className="mt-3 rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted"
+                    >
+                      Create project
+                    </button>
+                  ) : node.kind === 'project' &&
+                    selectedProject &&
+                    (environmentsByProject[selectedProject.uuid] ?? [])
+                      .length === 0 ? (
+                    <button
+                      onClick={() =>
+                        setCreateTarget({
+                          kind: 'environment',
+                          projectUuid: selectedProject.uuid,
+                        })
+                      }
+                      className="mt-3 rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted"
+                    >
+                      Create environment
+                    </button>
+                  ) : null}
                 </div>
               )}
             </section>
@@ -1865,6 +1924,25 @@ function DashboardPage() {
           sharedValue={batchConfigTargetState.sharedValue}
           onCancel={() => setBatchConfigTargetState(null)}
           onConfirm={handleBatchConfigConfirm}
+        />
+      )}
+      {createTarget?.kind === 'project' && (
+        <CreateProjectDialog
+          onCancel={() => setCreateTarget(null)}
+          onCreated={handleProjectCreated}
+        />
+      )}
+      {createTarget?.kind === 'environment' && (
+        <CreateEnvironmentDialog
+          projectUuid={createTarget.projectUuid}
+          projectName={
+            sortedProjects.find((p) => p.uuid === createTarget.projectUuid)?.name ??
+            'Unknown project'
+          }
+          onCancel={() => setCreateTarget(null)}
+          onCreated={(environmentUuid) =>
+            handleEnvironmentCreated(createTarget.projectUuid, environmentUuid)
+          }
         />
       )}
       {logsTarget && (
