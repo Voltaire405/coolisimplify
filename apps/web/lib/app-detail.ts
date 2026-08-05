@@ -97,3 +97,58 @@ export function redeployClearedBy(
   if (action === 'deploy') return true
   return buildPack === 'dockerimage'
 }
+
+// --- Batch "Edit config" composition ----------------------------------------
+
+export type BatchConfigTarget =
+  | { kind: 'branch'; label: 'Git branch' }
+  | { kind: 'tag'; label: 'Image tag' }
+
+export interface BatchConfigApp {
+  uuid: string
+  name: string
+  /** The field this app edits (tag for dockerimage, branch for git). */
+  target: 'tag' | 'branch'
+  /** Current configured value. */
+  current: string
+  /** New value assigned by the shared field; per-row override may differ. */
+  assigned: string
+  /** Whether the row was overridden by hand (vs. following the shared value). */
+  overridden: boolean
+  canDeploy: boolean
+}
+
+/**
+ * Determine the batch edit target from a list of Applications. Every app must
+ * be the same kind (all git or all dockerimage) for a shared field to make
+ * sense; a mixed or unsupported selection is not editable.
+ */
+export function batchConfigTarget(
+  apps: Array<{
+    build_pack?: string
+    git_repository?: string | null
+    git_branch?: string | null
+    source_id?: string | number | null
+    private_key_id?: string | number | null
+    docker_registry_image_name?: string | null
+    docker_registry_image_tag?: string | null
+  }>,
+): BatchConfigTarget | null {
+  const kinds = new Set<string>()
+  for (const app of apps) {
+    const source = classifyApplicationSource(app)
+    if (source === 'docker-image') kinds.add('tag')
+    else if (source === 'git') kinds.add('branch')
+    else return null
+  }
+  if (kinds.size !== 1) return null
+  return kinds.has('tag')
+    ? { kind: 'tag', label: 'Image tag' }
+    : { kind: 'branch', label: 'Git branch' }
+}
+
+/** Suggested shared value: the common current value, or '' when they differ. */
+export function sharedConfigValue(apps: BatchConfigApp[]): string {
+  const first = apps[0]?.current ?? ''
+  return apps.every((a) => a.current === first) ? first : ''
+}

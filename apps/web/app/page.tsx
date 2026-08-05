@@ -27,15 +27,24 @@ import {
   StopConfirmDialog,
 } from '@/components/confirm-dialog'
 import { CloneDialog } from '@/components/clone-dialog'
+import { BatchConfigDialog } from '@/components/batch-config-dialog'
 import type { BatchCloneResultItem } from '@/lib/clone'
 import { isCloneable } from '@/lib/clone'
-import { redeployClearedBy } from '@/lib/app-detail'
+import {
+  batchConfigTarget,
+  sharedConfigValue,
+  editableConfig,
+  redeployClearedBy,
+  type BatchConfigApp,
+  type BatchConfigTarget,
+} from '@/lib/app-detail'
 import {
   Play,
   Square,
   RotateCcw,
   Rocket,
   Copy,
+  GitBranch,
   Trash2,
   X,
   Loader2,
@@ -453,6 +462,14 @@ function DashboardPage() {
   const [cloneTarget, setCloneTarget] = useState<CloneTarget | null>(null)
   type BatchCloneTarget = { type: ResourceType; sources: Array<{ uuid: string; name: string }> }
   const [batchCloneTarget, setBatchCloneTarget] = useState<BatchCloneTarget | null>(null)
+  // Batch "Edit config": the composed apps + shared target for the dialog.
+  type BatchConfigTargetState = {
+    apps: BatchConfigApp[]
+    target: BatchConfigTarget
+    sharedValue: string
+  }
+  const [batchConfigTargetState, setBatchConfigTargetState] =
+    useState<BatchConfigTargetState | null>(null)
 
   const findName = useCallback(
     (uuid: string) =>
@@ -896,6 +913,159 @@ function DashboardPage() {
     return undefined
   }, [selected, findResource])
 
+  // Compose the batch "Edit config" dialog state from the current selection:
+  // only Applications, all of the same kind (git or dockerimage). The shared
+  // value is pre-filled when every app already uses it.
+  const handleOpenBatchConfig = useCallback(() => {
+    const entries = Array.from(selected)
+    const built: BatchConfigApp[] = []
+    const appResources: Parameters<typeof batchConfigTarget>[0] = []
+    for (const id of entries) {
+      const { type, resource } = findResource(id)
+      if (type !== 'application' || !resource) continue
+      const app = resource as { name?: string; status?: string } & Parameters<typeof editableConfig>[0]
+      const editable = editableConfig(app)
+      if (!editable) continue
+      built.push({
+        uuid: resource.uuid,
+        name: app.name || 'Unnamed',
+        target: editable.kind,
+        current: editable.value,
+        assigned: editable.value,
+        overridden: false,
+        canDeploy: canRunAction('deploy', app.status),
+      })
+      appResources.push(resource as Parameters<typeof batchConfigTarget>[0][number])
+    }
+    const target = batchConfigTarget(appResources)
+    if (built.length === 0 || !target) {
+      addToast('Select only git or docker-image applications', 'error')
+      return
+    }
+    setBatchConfigTargetState({
+      apps: built,
+      target,
+      sharedValue: sharedConfigValue(built),
+    })
+  }, [selected, findResource, addToast])
+
+  // Disabled reason for the batch "Edit config" button.
+  const batchConfigDisabledReason = useCallback((): string | undefined => {
+    if (selected.size === 0) return 'No resources selected'
+    const entries = Array.from(selected)
+    let apps = 0
+    let nonApps = 0
+    for (const id of entries) {
+      const { type, resource } = findResource(id)
+      if (type !== 'application' || !resource) {
+        nonApps += 1
+        continue
+      }
+      const editable = editableConfig(resource as Parameters<typeof editableConfig>[0])
+      if (!editable) {
+        nonApps += 1
+        continue
+      }
+      apps += 1
+    }
+    if (apps === 0) return 'No selectable application in the selection'
+    if (nonApps > 0) return 'Only git and docker-image applications can be edited'
+    const appList = entries
+      .map((id) => {
+        const { resource } = findResource(id)
+        return (resource ?? {}) as Parameters<typeof batchConfigTarget>[0][number]
+      })
+      .filter(Boolean)
+    const target = batchConfigTarget(appList)
+    if (!target) return 'Select only git or only docker-image applications'
+    return undefined
+  }, [selected, findResource])
+
+  // Confirm handler for the batch config dialog: PATCH changed apps in
+  // parallel, then queue redeploys for the deployable ones (ADR-0005: marker
+  // only for changed-but-not-redeployed apps).
+  const handleBatchConfigConfirm = useCallback(
+    async (
+      changed: Array<{ app: BatchConfigApp; value: string }>,
+      redeploy: boolean,
+    ) => {
+      if (!client) {
+        addToast('Coolify is not configured', 'error')
+        return
+      }
+      const deployable = changed.filter((c) => c.app.canDeploy)
+      const skippedApps = changed.filter((c) => !c.app.canDeploy)
+
+      // 1. Save all changes in parallel; a failure on one app does not abort
+      //    the rest.
+      const results = await Promise.all(
+        changed.map(async (c) => {
+          try {
+            await client.updateApplication(
+              c.app.uuid,
+              c.app.target === 'tag'
+                ? { docker_registry_image_tag: c.value }
+                : { git_branch: c.value },
+            )
+            return { ok: true as const, app: c.app }
+          } catch (err) {
+            return {
+              ok: false as const,
+              app: c.app,
+              error: err instanceof Error ? err.message : 'Save failed',
+            }
+          }
+        }),
+      )
+      const saved = results.filter((r) => r.ok).map((r) => r.app)
+      const failed = results.filter((r) => !r.ok)
+
+      // 2. Raise the marker for changed apps that were saved but cannot be
+      //    redeployed (stopped) — their change is genuinely un-applied. Only
+      //    for apps whose PATCH actually succeeded.
+      const savedSkipped = skippedApps.filter((c) =>
+        results.some((r) => r.ok && r.app.uuid === c.app.uuid),
+      )
+      if (savedSkipped.length > 0) {
+        setRedeployNeeded((prev) => {
+          const next = new Set(prev)
+          for (const c of savedSkipped) next.add(c.app.uuid)
+          return next
+        })
+      }
+
+      // 3. Queue redeploys for the deployable, saved apps via the existing
+      //    sequential batch queue.
+      if (redeploy) {
+        for (const c of deployable) {
+          if (!results.find((r) => r.ok && r.app.uuid === c.app.uuid)) continue
+          handleBatchAdd(c.app.uuid, 'application', 'deploy')
+        }
+      }
+
+      setBatchConfigTargetState(null)
+      refetchByType('application')
+
+      const savedDeployable = deployable.filter((c) =>
+        results.some((r) => r.ok && r.app.uuid === c.app.uuid),
+      )
+      const parts: string[] = []
+      if (saved.length > 0)
+        parts.push(`${saved.length} saved`)
+      if (redeploy && savedDeployable.length > 0)
+        parts.push(`${savedDeployable.length} redeploying`)
+      if (savedSkipped.length > 0)
+        parts.push(`${savedSkipped.length} skipped (not running)`)
+      if (failed.length > 0) {
+        addToast(
+          `${failed.length} failed to save (${failed[0]?.error ?? 'unknown error'})`,
+          'error',
+        )
+      }
+      if (parts.length > 0) addToast(parts.join(', '), 'success')
+    },
+    [client, addToast, handleBatchAdd, refetchByType],
+  )
 
   const handleCloned = useCallback(
     (type: ResourceType, results: BatchCloneResultItem[]) => {
@@ -1573,6 +1743,18 @@ function DashboardPage() {
               Clone
             </button>
             <button
+              onClick={handleOpenBatchConfig}
+              disabled={!!batchConfigDisabledReason()}
+              title={
+                batchConfigDisabledReason() ??
+                'Edit branch/tag of selected applications'
+              }
+              className="flex h-9 flex-1 items-center justify-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-muted disabled:pointer-events-none disabled:opacity-40 sm:h-auto sm:flex-none sm:py-1.5"
+            >
+              <GitBranch className="h-3 w-3" />
+              Edit config
+            </button>
+            <button
               onClick={() => handleBatchAction('delete')}
               disabled={selectedDeleteTargets.length === 0}
               title={
@@ -1659,6 +1841,15 @@ function DashboardPage() {
           sourceType={batchCloneTarget.type}
           onCancel={() => setBatchCloneTarget(null)}
           onCloned={handleCloned}
+        />
+      )}
+      {batchConfigTargetState && (
+        <BatchConfigDialog
+          apps={batchConfigTargetState.apps}
+          target={batchConfigTargetState.target}
+          sharedValue={batchConfigTargetState.sharedValue}
+          onCancel={() => setBatchConfigTargetState(null)}
+          onConfirm={handleBatchConfigConfirm}
         />
       )}
 

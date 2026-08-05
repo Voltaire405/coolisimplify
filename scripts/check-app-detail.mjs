@@ -15,6 +15,8 @@ import {
   editableConfig,
   configEditPayload,
   redeployClearedBy,
+  batchConfigTarget,
+  sharedConfigValue,
 } from '../apps/web/lib/app-detail.ts'
 
 // --- docker-image apps: the reported bug ------------------------------------
@@ -119,5 +121,39 @@ assert.equal(redeployClearedBy('dockerimage', 'restart'), true)
 assert.equal(redeployClearedBy('dockerimage', 'deploy'), true)
 assert.equal(redeployClearedBy(undefined, 'deploy'), true)
 assert.equal(redeployClearedBy(undefined, 'restart'), false)
+
+// --- batch config target (shared-field composition) --------------------------
+// All git -> branch; all dockerimage -> tag; mixed or unsupported -> null.
+assert.deepEqual(batchConfigTarget([gitApp, gitApp]), {
+  kind: 'branch',
+  label: 'Git branch',
+})
+assert.deepEqual(batchConfigTarget([dockerImageApp, dockerImageApp]), {
+  kind: 'tag',
+  label: 'Image tag',
+})
+assert.equal(batchConfigTarget([gitApp, dockerImageApp]), null)
+assert.equal(
+  batchConfigTarget([
+    { build_pack: 'dockerfile', git_repository: 'coollabsio/coolify', git_branch: 'main' },
+  ]),
+  null,
+)
+
+// --- shared value suggestion -------------------------------------------------
+assert.equal(
+  sharedConfigValue([
+    { uuid: 'a', name: 'a', target: 'branch', current: 'main', assigned: 'main', overridden: false, canDeploy: true },
+    { uuid: 'b', name: 'b', target: 'branch', current: 'main', assigned: 'main', overridden: false, canDeploy: true },
+  ]),
+  'main',
+)
+assert.equal(
+  sharedConfigValue([
+    { uuid: 'a', name: 'a', target: 'branch', current: 'main', assigned: 'main', overridden: false, canDeploy: true },
+    { uuid: 'b', name: 'b', target: 'branch', current: 'dev', assigned: 'main', overridden: false, canDeploy: true },
+  ]),
+  '',
+)
 
 console.log('PASS — application source classification matches the real API contract')
