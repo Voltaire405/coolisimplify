@@ -73,6 +73,51 @@ export function createSchema(path) {
   return { required, props: propsAt(propsLine + 1, end, 16) }
 }
 
+/**
+ * Parameters of a path's GET operation: name -> { in, required, type, default }.
+ * Values stay as the raw YAML strings; callers compare against what they send.
+ */
+export function queryParams(path) {
+  const escaped = path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const start = findLine(new RegExp(`^  '?${escaped}'?:\\s*$`))
+  if (start < 0) throw new Error(`path not found: ${path}`)
+  let end = lines.length
+  for (let i = start + 1; i < lines.length; i++) {
+    if (indentOf(lines[i]) === 2 && lines[i].trim().endsWith(':')) {
+      end = i
+      break
+    }
+  }
+  // Bound the scan to the parameters block, so `type:` keys under responses
+  // cannot leak into the last parameter read.
+  const from = findLine(/^\s{6}parameters:\s*$/, start)
+  if (from < 0 || from >= end) throw new Error(`no parameters block: ${path}`)
+  const resp = findLine(/^\s{6}responses:\s*$/, from)
+  const to = resp > from && resp < end ? resp : end
+
+  const out = {}
+  let current = null
+  for (let i = from + 1; i < to; i++) {
+    const t = lines[i].trim()
+    const name = t.match(/^name:\s*(\S+)$/)
+    if (name) {
+      current = { in: null, required: false, type: null, default: undefined }
+      out[name[1]] = current
+      continue
+    }
+    if (!current) continue
+    const where = t.match(/^in:\s*(\S+)$/)
+    if (where) current.in = where[1]
+    const req = t.match(/^required:\s*(true|false)$/)
+    if (req) current.required = req[1] === 'true'
+    const type = t.match(/^type:\s*(\S+)$/)
+    if (type && current.type === null) current.type = type[1]
+    const def = t.match(/^default:\s*(\S+)$/)
+    if (def && current.default === undefined) current.default = def[1]
+  }
+  return out
+}
+
 /** Component schema properties, e.g. the Application GET response. */
 export function componentSchema(name) {
   const start = findLine(new RegExp(`^    ${name}:\\s*$`))

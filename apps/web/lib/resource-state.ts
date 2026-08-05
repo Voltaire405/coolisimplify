@@ -32,14 +32,17 @@ const TRANSITIONING = [
   'deployment in progress',
 ]
 
+// A resource that never got a container. Kept separate from the rest of
+// STOPPED because for logs the two are opposites: an `exited` container still
+// holds the crash trace, a never-deployed one has nothing to read at all.
+const NEVER_DEPLOYED = ['never deployed', 'never-deployed', 'not deployed']
+
 const STOPPED = [
   'exited',
   'stopped',
   'finished',
   'cancelled-by-user',
-  'never deployed',
-  'never-deployed',
-  'not deployed',
+  ...NEVER_DEPLOYED,
 ]
 
 const ERROR = ['error', 'failed', 'failure', 'unhealthy']
@@ -60,6 +63,18 @@ export function classifyResourceState(status?: string | null): ResourceState {
   if (ERROR.some((t) => s.startsWith(t))) return 'error'
 
   return 'unknown'
+}
+
+/**
+ * True only when Coolify says the resource has never been deployed. Used to
+ * gate the logs viewer: every other state — including `exited` and `stopped` —
+ * may still have a container whose output is worth reading, and an unknown or
+ * missing status is not evidence of absence, so it stays readable.
+ */
+export function isNeverDeployed(status?: string | null): boolean {
+  if (!status) return false
+  const s = status.toLowerCase().trim()
+  return NEVER_DEPLOYED.some((t) => s.startsWith(t))
 }
 
 // Status Roll-up: the worst descendant state, shown as a LED on Sidebar

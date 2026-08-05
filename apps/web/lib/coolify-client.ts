@@ -20,6 +20,7 @@ import type {
   ServiceCreate,
   DatabaseCreate,
   DeleteOptions,
+  LogsResponse,
 } from './types'
 import type { ResourceType } from './types'
 import { envBasePath, envItemPath } from './envs.ts'
@@ -223,6 +224,23 @@ export class CoolifyClient {
     return this.request<RestartResponse>(`/applications/${uuid}/restart`, {
       method: 'POST',
     })
+  }
+
+  /**
+   * `lines` (tail window, API default 100) and `show_timestamps` are the only
+   * knobs the endpoint accepts — no follow, no since/until, no severity filter.
+   * Anything else the viewer offers is applied client-side.
+   */
+  getApplicationLogs(
+    uuid: string,
+    opts?: { lines?: number; show_timestamps?: boolean },
+  ): Promise<LogsResponse> {
+    const params = new URLSearchParams()
+    if (opts?.lines !== undefined) params.set('lines', String(opts.lines))
+    if (opts?.show_timestamps !== undefined)
+      params.set('show_timestamps', String(opts.show_timestamps))
+    const qs = params.toString() ? `?${params.toString()}` : ''
+    return this.request<LogsResponse>(`/applications/${uuid}/logs${qs}`)
   }
 
   // Services

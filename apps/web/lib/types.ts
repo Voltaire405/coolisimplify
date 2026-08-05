@@ -287,6 +287,15 @@ export interface RestartResponse {
   deployment_uuid?: string
 }
 
+/**
+ * Container output as a single blob. The API exposes no streaming, paging or
+ * time range — the whole tail arrives at once and is replaced wholesale on
+ * every refetch.
+ */
+export interface LogsResponse {
+  logs: string
+}
+
 export interface CreateResponse {
   uuid: string
 }

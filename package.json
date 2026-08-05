@@ -11,7 +11,8 @@
     "check:clone-payload": "node --experimental-strip-types scripts/check-clone-payload.mjs",
     "check:clone-names": "node --experimental-strip-types scripts/check-clone-names.mjs",
     "check:envs": "node --experimental-strip-types scripts/check-envs.mjs",
-    "check:app-detail": "node --experimental-strip-types scripts/check-app-detail.mjs"
+    "check:app-detail": "node --experimental-strip-types scripts/check-app-detail.mjs",
+    "check:logs": "node --experimental-strip-types scripts/check-logs.mjs"
   },
   "devDependencies": {
     "@workspace/eslint-config": "workspace:*",

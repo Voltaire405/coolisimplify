@@ -15,6 +15,7 @@ import {
   RotateCcw,
   MoreHorizontal,
   Loader2,
+  Terminal,
 } from 'lucide-react'
 import type { Resource } from '@/lib/types'
 import {
@@ -23,7 +24,7 @@ import {
   type BatchAction,
   type RowAction,
 } from '@/hooks/use-coolify'
-import { canRunAction } from '@/lib/resource-state'
+import { canRunAction, isNeverDeployed } from '@/lib/resource-state'
 import { isCloneable } from '@/lib/clone'
 
 interface ResourceRowProps {
@@ -59,6 +60,7 @@ const ACTION_LABEL: Record<RowAction, string> = {
   clone: 'cloning',
   properties: 'properties',
   variables: 'variables',
+  logs: 'logs',
 }
 
 // Reason shown in title/aria-label when an action is disabled because the
@@ -102,6 +104,10 @@ export function ResourceRow({
   const serverName = (resource as { destination?: { server?: { name?: string } } })
     .destination?.server?.name
   const Icon = typeIcons[type]
+  // Scope: only applications expose a logs endpoint here (databases and
+  // services have their own paths, services additionally needing a
+  // sub_service_name to pick a container).
+  const logsUnavailable = isNeverDeployed(status)
   const disabledReason = (action: BatchAction) =>
     busy
       ? 'Request in progress'
@@ -154,6 +160,19 @@ export function ResourceRow({
       action: 'variables' as const,
       disabled: busy,
     },
+    // Reading logs mutates nothing, so unlike its siblings this entry ignores
+    // both `busy` and canRunAction: an exited container still holds the crash
+    // trace, and a deploy in flight is exactly when you want to watch. Only a
+    // resource that never got a container has nothing to read.
+    ...(type === 'application'
+      ? [
+          {
+            label: 'Logs',
+            action: 'logs' as const,
+            disabled: logsUnavailable,
+          },
+        ]
+      : []),
     { label: 'Delete', action: 'delete' as const, dangerous: true, disabled: busy },
   ]
 
@@ -305,6 +324,23 @@ export function ResourceRow({
               <Play className="h-3.5 w-3.5" />
             )}
           </button>
+          {/* Last in the cluster: the three buttons to its left mutate the
+              resource, this one only reads it. */}
+          {type === 'application' && (
+            <button
+              onClick={() => onAction('logs')}
+              disabled={logsUnavailable}
+              className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted disabled:opacity-30 sm:h-auto sm:w-auto sm:p-1.5"
+              aria-label={logsUnavailable ? 'No logs: never deployed' : 'View logs'}
+              title={
+                logsUnavailable
+                  ? 'Never deployed — no container to read logs from'
+                  : 'View logs'
+              }
+            >
+              <Terminal className="h-3.5 w-3.5" />
+            </button>
+          )}
           <ContextMenu items={menuItems} onSelect={onAction}>
             <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
           </ContextMenu>

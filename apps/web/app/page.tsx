@@ -27,6 +27,8 @@ import {
   StopConfirmDialog,
 } from '@/components/confirm-dialog'
 import { CloneDialog } from '@/components/clone-dialog'
+import { LogsDialog } from '@/components/logs-dialog'
+import { DEFAULT_LOG_LINES, type LogLineOption } from '@/lib/logs'
 import { BatchConfigDialog } from '@/components/batch-config-dialog'
 import type { BatchCloneResultItem } from '@/lib/clone'
 import { isCloneable } from '@/lib/clone'
@@ -470,6 +472,13 @@ function DashboardPage() {
   }
   const [batchConfigTargetState, setBatchConfigTargetState] =
     useState<BatchConfigTargetState | null>(null)
+  type LogsTarget = { uuid: string; name: string }
+  const [logsTarget, setLogsTarget] = useState<LogsTarget | null>(null)
+  // Viewer settings live here rather than inside the dialog so they carry over
+  // to the next resource you open. Deliberately not persisted: a 5000-line
+  // window should not outlive the tab that asked for it.
+  const [logLines, setLogLines] = useState<LogLineOption>(DEFAULT_LOG_LINES)
+  const [logTimestamps, setLogTimestamps] = useState(false)
 
   const findName = useCallback(
     (uuid: string) =>
@@ -558,15 +567,15 @@ function DashboardPage() {
     async (
       uuid: string,
       type: ResourceType,
-      action: RowAction,
+      // Only the mutating actions reach here; the read-only ones (properties,
+      // variables, clone, logs) are handled by handleAction and never dispatch.
+      action: BatchAction,
       deleteOpts?: DeleteOptions,
     ) => {
       if (!client) {
         addToast('Coolify is not configured', 'error')
         return
       }
-      if (action === 'clone' || action === 'properties' || action === 'variables')
-        return
       if (isResourceBusy(uuid)) {
         // Another request is in flight for this resource; ignore the click.
         return
@@ -630,6 +639,12 @@ function DashboardPage() {
 
   const handleAction = useCallback(
     (uuid: string, type: ResourceType, action: RowAction) => {
+      // Ahead of the busy guard: reading logs mutates nothing, and a deploy in
+      // flight is exactly when they matter.
+      if (action === 'logs') {
+        setLogsTarget({ uuid, name: findName(uuid) })
+        return
+      }
       if (isResourceBusy(uuid)) return
       if (action === 'properties') {
         openDrawer(type, uuid, 'details')
@@ -1850,6 +1865,17 @@ function DashboardPage() {
           sharedValue={batchConfigTargetState.sharedValue}
           onCancel={() => setBatchConfigTargetState(null)}
           onConfirm={handleBatchConfigConfirm}
+        />
+      )}
+      {logsTarget && (
+        <LogsDialog
+          uuid={logsTarget.uuid}
+          name={logsTarget.name}
+          lines={logLines}
+          showTimestamps={logTimestamps}
+          onLinesChange={setLogLines}
+          onShowTimestampsChange={setLogTimestamps}
+          onClose={() => setLogsTarget(null)}
         />
       )}
 

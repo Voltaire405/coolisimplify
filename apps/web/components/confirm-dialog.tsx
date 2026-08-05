@@ -17,10 +17,13 @@ const DEFAULT_DELETE_OPTIONS: DeleteOptions = {
 export function ModalShell({
   onCancel,
   labelledBy,
+  panelClassName,
   children,
 }: {
   onCancel: () => void
   labelledBy: string
+  /** Sizing override for the panel; defaults to the narrow confirm-dialog width. */
+  panelClassName?: string
   children: React.ReactNode
 }) {
   useEffect(() => {
@@ -42,7 +45,10 @@ export function ModalShell({
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
-        className="relative w-full max-w-md rounded-lg border border-border bg-card p-4 shadow-lg"
+        className={cn(
+          'relative w-full rounded-lg border border-border bg-card p-4 shadow-lg',
+          panelClassName ?? 'max-w-md',
+        )}
       >
         {children}
       </div>

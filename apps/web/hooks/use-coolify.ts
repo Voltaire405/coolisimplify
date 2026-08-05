@@ -172,7 +172,12 @@ export function useAllEnvironments(projects: Project[]) {
 }
 
 export type BatchAction = 'start' | 'stop' | 'restart' | 'deploy' | 'delete'
-export type RowAction = BatchAction | 'clone' | 'properties' | 'variables'
+export type RowAction =
+  | BatchAction
+  | 'clone'
+  | 'properties'
+  | 'variables'
+  | 'logs'
 export type ResourceType = 'application' | 'service' | 'database'
 
 export interface BatchItem {
