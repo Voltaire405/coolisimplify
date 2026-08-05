@@ -16,6 +16,7 @@ import { StatusIndicator } from './status-indicator'
 import { EnvironmentVariableEditor } from './environment-variable-editor'
 import { isResourceActive, useClient } from '@/hooks/use-coolify'
 import type { Resource, ResourceType, Tag as TagType } from '@/lib/types'
+import { classifyApplicationSource, dockerImageLabel } from '@/lib/app-detail'
 import { classifyResourceState, RESOURCE_STATE_LABEL } from '@/lib/resource-state'
 import { cn } from '@workspace/ui/lib/utils'
 
@@ -122,14 +123,17 @@ export function ResourceDrawer({
   const serverName = (resource as { destination?: { server?: { name?: string } } })
     .destination?.server?.name
 
-  // Application-specific fields (git / docker image).
+  // Application-specific fields (git / docker image). Coolify stores a
+  // placeholder `git_repository`/`git_branch` on non-git apps (dockerimage,
+  // dockerfile), so `build_pack` is the discriminator, not the git fields.
   const app = type === 'application' ? (resource as ApplicationLike) : null
+  const appSource = app ? classifyApplicationSource(app) : null
   const repo = app?.git_repository?.trim()
   const branch = app?.git_branch?.trim()
   const dockerImage = app?.docker_registry_image_name?.trim()
-  const dockerImageTag = app?.docker_registry_image_tag?.trim()
-  const showGit = !!repo
-  const showDockerImage = !!dockerImage
+  const imageLabel = dockerImageLabel(app ?? {})
+  const showGit = appSource === 'git' && !!repo
+  const showDockerImage = appSource === 'docker-image' && !!dockerImage
 
   const fqdn = (resource as { fqdn?: string | null }).fqdn?.trim()
   const portsExposes = (resource as { ports_exposes?: string }).ports_exposes?.trim()
@@ -205,14 +209,7 @@ export function ResourceDrawer({
 
           {type === 'application' && !showGit && showDockerImage && (
             <PropertyRow icon={Container} label="Docker image">
-              <Value>
-                {dockerImage}
-                {dockerImageTag && (
-                  <>
-                    :<span className="text-muted-foreground">{dockerImageTag}</span>
-                  </>
-                )}
-              </Value>
+              <Value>{imageLabel}</Value>
             </PropertyRow>
           )}
 
@@ -297,6 +294,7 @@ export function ResourceDrawer({
 }
 
 interface ApplicationLike {
+  build_pack?: string
   git_repository?: string
   git_branch?: string
   docker_registry_image_name?: string | null
