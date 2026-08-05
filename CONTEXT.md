@@ -44,6 +44,10 @@ _Avoid_: Quick switcher, spotlight, finder
 The worst state among a Sidebar node's descendant Resources, shown as a LED on the node (red: something down, amber: something transitioning, green: all running).
 _Avoid_: Aggregate status, health indicator
 
+**Redeploy-needed**:
+The state of an Application whose configured Docker image tag or git branch differs from what the running container was last started with. Derived client-side (not persisted): the marker is raised when the tag/branch is edited and cleared when a Redeploy converges, or when a Restart converges for a Docker-image Application (Coolify forces restart-only off for dockerimage apps, so a Restart pulls the new tag). Shown as a chip on the Resource row.
+_Avoid_: Restart-needed, needs-redeploy, pending-deploy
+
 **Batch Queue**:
 The ordered set of selected Resources awaiting a batch action; selection order is execution order. It persists across Sidebar navigation and is shown as removable chips in the floating bar.
 _Avoid_: Bulk selection, multi-select

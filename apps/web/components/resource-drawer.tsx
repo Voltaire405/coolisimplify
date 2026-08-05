@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Box,
   Workflow,
@@ -10,13 +10,22 @@ import {
   Container,
   Tag,
   X,
+  Check,
+  Loader2,
+  Pencil,
 } from 'lucide-react'
 import { CopyButton } from './copy-button'
 import { StatusIndicator } from './status-indicator'
 import { EnvironmentVariableEditor } from './environment-variable-editor'
 import { isResourceActive, useClient } from '@/hooks/use-coolify'
 import type { Resource, ResourceType, Tag as TagType } from '@/lib/types'
-import { classifyApplicationSource, dockerImageLabel } from '@/lib/app-detail'
+import {
+  classifyApplicationSource,
+  dockerImageLabel,
+  editableConfig,
+  configEditPayload,
+  type EditableConfig,
+} from '@/lib/app-detail'
 import { classifyResourceState, RESOURCE_STATE_LABEL } from '@/lib/resource-state'
 import { cn } from '@workspace/ui/lib/utils'
 
@@ -38,6 +47,8 @@ interface ResourceDrawerProps {
   onClose: () => void
   /** Toast sink; forwarded to the env editor for save/delete feedback. */
   onNotify?: (message: string, type: 'success' | 'error') => void
+  /** Persist an edited Docker image tag or git branch; resolves true on success. */
+  onConfigEdit?: (uuid: string, payload: Record<string, unknown>) => Promise<boolean>
 }
 
 function PropertyRow({
@@ -64,6 +75,122 @@ function PropertyRow({
 
 function Value({ children }: { children: React.ReactNode }) {
   return <span className="break-words whitespace-pre-wrap">{children}</span>
+}
+
+/**
+ * Click-to-edit value row for the tag/branch fields, mirroring InlineRename:
+ * click to edit, Enter/blur commits, Esc cancels. Calls onSubmit with the new
+ * value; a no-op (unchanged) commit sends nothing.
+ */
+function EditableValue({
+  config,
+  label,
+  saving,
+  onCommit,
+}: {
+  config: EditableConfig
+  label: string
+  saving?: boolean
+  onCommit: (next: EditableConfig) => Promise<boolean>
+}) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(config.value)
+  const [busy, setBusy] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const start = () => {
+    if (saving) return
+    setValue(config.value)
+    setEditing(true)
+  }
+
+  const cancel = () => {
+    if (busy) return
+    setEditing(false)
+  }
+
+  const commit = async () => {
+    if (busy) return
+    const next = value.trim()
+    if (next === config.value) {
+      setEditing(false)
+      return
+    }
+    setBusy(true)
+    try {
+      const saved = await onCommit({ ...config, value: next })
+      if (saved) setEditing(false)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={start}
+        disabled={saving}
+        title={`Click to edit ${label}`}
+        className="group inline-flex max-w-full items-center gap-1 rounded-sm text-left hover:bg-muted disabled:cursor-default disabled:opacity-50"
+      >
+        <span className="truncate">{config.value || '—'}</span>
+        <Pencil className="h-3 w-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
+      </button>
+    )
+  }
+
+  return (
+    <span className="flex min-w-0 items-center gap-1">
+      <input
+        ref={inputRef}
+        type="text"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onFocus={(e) => e.target.select()}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            void commit()
+          } else if (e.key === 'Escape') {
+            e.preventDefault()
+            cancel()
+          }
+        }}
+        onBlur={cancel}
+        disabled={busy}
+        spellCheck={false}
+        aria-label={label}
+        className="w-40 rounded-md border border-border bg-background px-2 py-0.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-foreground/40 disabled:opacity-50"
+      />
+      <button
+        type="button"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => void commit()}
+        disabled={busy || !value.trim()}
+        aria-label={`Confirm ${label}`}
+        title="Confirm"
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-foreground hover:bg-muted disabled:opacity-40"
+      >
+        {busy ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <Check className="h-3.5 w-3.5" />
+        )}
+      </button>
+      <button
+        type="button"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={cancel}
+        disabled={busy}
+        aria-label="Cancel edit"
+        title="Cancel"
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-destructive hover:bg-muted disabled:opacity-40"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </span>
+  )
 }
 
 function TabButton({
@@ -102,6 +229,7 @@ export function ResourceDrawer({
   onTabChange,
   onClose,
   onNotify,
+  onConfigEdit,
 }: ResourceDrawerProps) {
   const { client } = useClient()
   const Icon = typeIcons[type]
@@ -129,11 +257,22 @@ export function ResourceDrawer({
   const app = type === 'application' ? (resource as ApplicationLike) : null
   const appSource = app ? classifyApplicationSource(app) : null
   const repo = app?.git_repository?.trim()
-  const branch = app?.git_branch?.trim()
   const dockerImage = app?.docker_registry_image_name?.trim()
   const imageLabel = dockerImageLabel(app ?? {})
   const showGit = appSource === 'git' && !!repo
   const showDockerImage = appSource === 'docker-image' && !!dockerImage
+  const editConfig = app ? editableConfig(app) : null
+  const [savingConfig, setSavingConfig] = useState(false)
+
+  const commitConfig = async (next: EditableConfig) => {
+    if (!onConfigEdit) return false
+    setSavingConfig(true)
+    try {
+      return await onConfigEdit(resource.uuid, configEditPayload(next))
+    } finally {
+      setSavingConfig(false)
+    }
+  }
 
   const fqdn = (resource as { fqdn?: string | null }).fqdn?.trim()
   const portsExposes = (resource as { ports_exposes?: string }).ports_exposes?.trim()
@@ -195,21 +334,33 @@ export function ResourceDrawer({
 
           {type === 'application' && showGit && (
             <PropertyRow icon={GitBranch} label="Repository">
-              <Value>
-                {repo}
-                {branch && (
-                  <>
-                    {' '}
-                    <span className="text-muted-foreground">({branch})</span>
-                  </>
+              <div className="flex min-w-0 flex-col gap-1">
+                <Value>{repo}</Value>
+                {editConfig?.kind === 'branch' && (
+                  <EditableValue
+                    config={editConfig}
+                    label="Git branch"
+                    saving={savingConfig}
+                    onCommit={commitConfig}
+                  />
                 )}
-              </Value>
+              </div>
             </PropertyRow>
           )}
 
           {type === 'application' && !showGit && showDockerImage && (
             <PropertyRow icon={Container} label="Docker image">
-              <Value>{imageLabel}</Value>
+              <div className="flex min-w-0 flex-col gap-1">
+                <Value>{imageLabel}</Value>
+                {editConfig?.kind === 'tag' && (
+                  <EditableValue
+                    config={editConfig}
+                    label="Image tag"
+                    saving={savingConfig}
+                    onCommit={commitConfig}
+                  />
+                )}
+              </div>
             </PropertyRow>
           )}
 

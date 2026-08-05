@@ -27,6 +27,8 @@ interface EnvironmentSectionProps {
     type: ResourceType,
     newName: string,
   ) => Promise<boolean>
+  /** uuids of Resources with an unapplied config edit (ADR-0005). */
+  redeployNeeded?: Set<string>
   onOpenProperties?: (
     uuid: string,
     type: ResourceType,
@@ -55,6 +57,7 @@ export function EnvironmentSection({
   busyAction,
   selectionOrder,
   highlightId,
+  redeployNeeded,
 }: EnvironmentSectionProps) {
   const active = useMemo(
     () => resources.filter((r) => isResourceActive(r.resource.status)).length,
@@ -98,6 +101,7 @@ export function EnvironmentSection({
                 highlighted={highlightId === id}
                 busy={isBusy ? isBusy(resource.uuid) : false}
                 busyAction={busyAction?.(resource.uuid)}
+                redeployNeeded={redeployNeeded?.has(resource.uuid)}
                 onToggleSelect={() => onToggleSelect(id)}
                 onAction={(action) => onAction(resource.uuid, type, action)}
                 onBatchAdd={(action) => onBatchAdd(resource.uuid, type, action)}

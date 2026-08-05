@@ -33,6 +33,8 @@ interface ResourceRowProps {
   selectionIndex?: number
   busy?: boolean
   busyAction?: RowAction
+  /** This Application's config was edited but not yet applied (ADR-0005). */
+  redeployNeeded?: boolean
   /** Pulse the row after palette navigation so the eye lands on it. */
   highlighted?: boolean
   onToggleSelect: () => void
@@ -76,6 +78,7 @@ export function ResourceRow({
   selectionIndex,
   busy = false,
   busyAction,
+  redeployNeeded = false,
   highlighted = false,
   onToggleSelect,
   onAction,
@@ -209,6 +212,15 @@ export function ResourceRow({
                 >
                   <Loader2 className="h-2.5 w-2.5 animate-spin" />
                   {busyAction ? ACTION_LABEL[busyAction] : 'queued'}
+                </span>
+              )}
+              {redeployNeeded && !busy && (
+                <span
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-600 dark:text-amber-400"
+                  title="Configuration changed; redeploy to apply it"
+                >
+                  <Rocket className="h-2.5 w-2.5" />
+                  Redeploy needed
                 </span>
               )}
             </span>

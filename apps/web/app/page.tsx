@@ -29,6 +29,7 @@ import {
 import { CloneDialog } from '@/components/clone-dialog'
 import type { BatchCloneResultItem } from '@/lib/clone'
 import { isCloneable } from '@/lib/clone'
+import { redeployClearedBy } from '@/lib/app-detail'
 import {
   Play,
   Square,
@@ -298,6 +299,11 @@ function DashboardPage() {
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [toasts, setToasts] = useState<Toast[]>([])
+
+  // Redeploy-needed markers (ADR-0005): uuids of Applications whose config was
+  // edited but not yet applied. Client-derived, not persisted — cleared when a
+  // converging action clears it (see the pending resolver below).
+  const [redeployNeeded, setRedeployNeeded] = useState<Set<string>>(new Set())
 
   // Sidebar navigation. The selected node lives in the URL (?node=…) so
   // back/forward and deep links work; the expanded-project set is UI noise
@@ -691,6 +697,35 @@ function DashboardPage() {
     [client, addToast, refetchByType, isResourceBusy],
   )
 
+  // Persist an edited Docker image tag or git branch (ADR-0005). The drawer
+  // passes the current resource value; the no-op guard lives in the editor.
+  const handleConfigEdit = useCallback(
+    async (uuid: string, payload: Record<string, unknown>): Promise<boolean> => {
+      if (!client) {
+        addToast('Coolify is not configured', 'error')
+        return false
+      }
+      if (isResourceBusy(uuid)) {
+        addToast('Request in progress', 'error')
+        return false
+      }
+      try {
+        await client.updateApplication(uuid, payload)
+        addToast('Configuration saved', 'success')
+        setRedeployNeeded((prev) => new Set(prev).add(uuid))
+        refetchByType('application')
+        return true
+      } catch (err) {
+        addToast(
+          err instanceof Error ? err.message : 'Save failed',
+          'error',
+        )
+        return false
+      }
+    },
+    [client, addToast, refetchByType, isResourceBusy],
+  )
+
   const handleBatchAction = useCallback(
     (action: BatchAction) => {
       const entries = Array.from(selected)
@@ -905,6 +940,7 @@ function DashboardPage() {
     if (pending.size === 0) return
     const now = Date.now()
     const toClear: string[] = []
+    const toClearRedeploy: string[] = []
     for (const [uuid, p] of pending) {
       const age = now - p.startedAt
       if (age > PENDING_TIMEOUT_MS) {
@@ -918,7 +954,7 @@ function DashboardPage() {
             ? services
             : databases
       const resource = list.find((r) => r.uuid === uuid) as
-        | { status?: string }
+        | { status?: string; build_pack?: string }
         | undefined
       if (p.action === 'delete') {
         if (!resource) toClear.push(uuid)
@@ -932,8 +968,14 @@ function DashboardPage() {
         (p.action === 'restart' || p.action === 'deploy') &&
         active &&
         age >= RESTART_MIN_AGE_MS
-      )
+      ) {
         toClear.push(uuid)
+        // A converging deploy clears the marker for all apps; a converging
+        // restart only for dockerimage apps (ADR-0005).
+        if (redeployClearedBy(resource.build_pack, p.action)) {
+          toClearRedeploy.push(uuid)
+        }
+      }
     }
     if (toClear.length === 0) return
     // Cascading update is bounded: each entry resolves at most once per
@@ -945,6 +987,13 @@ function DashboardPage() {
       for (const uuid of toClear) next.delete(uuid)
       return next
     })
+    if (toClearRedeploy.length > 0) {
+      setRedeployNeeded((prev) => {
+        const next = new Set(prev)
+        for (const uuid of toClearRedeploy) next.delete(uuid)
+        return next
+      })
+    }
   }, [pending, applications, services, databases])
 
   // While any action is pending, poll the relevant lists every few seconds
@@ -1388,6 +1437,7 @@ function DashboardPage() {
                       onAction={handleAction}
                       onBatchAdd={handleBatchAdd}
                       onRename={handleRename}
+                      redeployNeeded={redeployNeeded}
                       onOpenProperties={(uuid, type) =>
                         openDrawer(type, uuid, 'details')
                       }
@@ -1420,6 +1470,7 @@ function DashboardPage() {
                   onTabChange={setDrawerTab}
                   onClose={() => closeDrawer()}
                   onNotify={addToast}
+                  onConfigEdit={handleConfigEdit}
                 />
               </aside>
             )}

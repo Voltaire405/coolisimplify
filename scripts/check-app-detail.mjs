@@ -9,7 +9,13 @@
 //
 // Run with: pnpm check:app-detail
 import assert from 'node:assert/strict'
-import { classifyApplicationSource, dockerImageLabel } from '../apps/web/lib/app-detail.ts'
+import {
+  classifyApplicationSource,
+  dockerImageLabel,
+  editableConfig,
+  configEditPayload,
+  redeployClearedBy,
+} from '../apps/web/lib/app-detail.ts'
 
 // --- docker-image apps: the reported bug ------------------------------------
 // Real Coolify stores the placeholder repo on dockerimage apps.
@@ -73,5 +79,45 @@ assert.equal(
   }),
   'git',
 )
+
+// --- editable config target --------------------------------------------------
+// dockerimage apps edit the tag; git apps edit the branch; dockerfile-without-git
+// apps edit nothing.
+assert.deepEqual(editableConfig(dockerImageApp), { kind: 'tag', value: 'latest' })
+assert.deepEqual(editableConfig(gitApp), { kind: 'branch', value: 'main' })
+assert.equal(
+  editableConfig({
+    build_pack: 'dockerfile',
+    git_repository: 'coollabsio/coolify',
+    git_branch: 'main',
+  }),
+  null,
+)
+// An absent tag is still an editable, empty value.
+assert.deepEqual(
+  editableConfig({
+    build_pack: 'dockerimage',
+    docker_registry_image_name: 'nginx',
+    docker_registry_image_tag: null,
+  }),
+  { kind: 'tag', value: '' },
+)
+
+// --- PATCH payloads ----------------------------------------------------------
+assert.deepEqual(configEditPayload({ kind: 'tag', value: 'v2' }), {
+  docker_registry_image_tag: 'v2',
+})
+assert.deepEqual(configEditPayload({ kind: 'branch', value: 'dev' }), {
+  git_branch: 'dev',
+})
+
+// --- clear rule (ADR-0005): asymmetric per build pack ------------------------
+// A deploy always clears; a restart clears only for dockerimage apps.
+assert.equal(redeployClearedBy('nixpacks', 'deploy'), true)
+assert.equal(redeployClearedBy('nixpacks', 'restart'), false)
+assert.equal(redeployClearedBy('dockerimage', 'restart'), true)
+assert.equal(redeployClearedBy('dockerimage', 'deploy'), true)
+assert.equal(redeployClearedBy(undefined, 'deploy'), true)
+assert.equal(redeployClearedBy(undefined, 'restart'), false)
 
 console.log('PASS — application source classification matches the real API contract')
