@@ -14,6 +14,10 @@ import {
   isResourceActive,
 } from '@/hooks/use-coolify'
 import { judgeAction, timeoutMessage } from '@/lib/deploy-verdict'
+import {
+  waitForCompletion as waitForCompletionOf,
+  type CompletionOutcome,
+} from '@/lib/wait-for-completion'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { ConfigButton } from '@/components/config-button'
 import { Sidebar } from '@/components/sidebar'
@@ -275,69 +279,30 @@ function DashboardPage() {
   }, [client])
 
   const waitForCompletion = useCallback(
-    async (item: {
+    (item: {
       resourceUuid: string
       resourceType: ResourceType
       action: RowAction
       deploymentUuid?: string
-    }): Promise<'completed' | 'failed' | 'timeout'> => {
-      const startedAt = Date.now()
-      // App deploy runs a full build pipeline; app restart_only is faster but
-      // both go through the deployment queue, so give them the long budget.
-      const isAppRedeployLike =
-        item.resourceType === 'application' &&
-        (item.action === 'restart' || item.action === 'deploy')
-      const timeoutMs = isAppRedeployLike
-        ? 5 * 60_000
-        : item.action === 'delete'
-          ? 60_000
-          : 2 * 60_000
-      const pollIntervalMs = 3000
-      const deadline = startedAt + timeoutMs
-
-      while (Date.now() < deadline) {
-        const fn = refetchByTypeAndReturnRef.current[item.resourceType]
-        let list: { uuid: string; status?: string }[] | undefined
-        try {
-          list = (await fn()) as { uuid: string; status?: string }[] | undefined
-        } catch {
-          list = undefined
-        }
-        const resource = list?.find((r) => r.uuid === item.resourceUuid)
-
-        // The deployment record is the only thing that knows whether the build
-        // worked; the container keeps reporting the *previous* image until it
-        // is replaced, so it looks identical on success and failure.
-        let deploymentStatus: string | undefined
-        if (item.deploymentUuid && clientRef.current) {
-          try {
-            deploymentStatus = (
-              await clientRef.current.getDeployment(item.deploymentUuid)
-            ).status
-          } catch {
-            // Transient: fall through and let the next poll retry rather than
-            // inventing a verdict from a failed lookup.
-          }
-        }
-
-        // A listing we could not read is not evidence the resource is gone.
-        if (list) {
-          const verdict = judgeAction({
-            action: item.action as 'start' | 'stop' | 'restart' | 'deploy' | 'delete',
-            resourcePresent: !!resource,
-            containerStatus: resource?.status,
-            deploymentStatus,
-            elapsedMs: Date.now() - startedAt,
-          })
-          if (verdict === 'succeeded') return 'completed'
-          if (verdict === 'failed') return 'failed'
-        }
-
-        if (Date.now() + pollIntervalMs >= deadline) break
-        await new Promise((r) => setTimeout(r, pollIntervalMs))
-      }
-      return 'timeout'
-    },
+    }): Promise<CompletionOutcome> =>
+      waitForCompletionOf(
+        {
+          ...item,
+          action: item.action as BatchAction,
+        },
+        {
+          listResources: async (type) =>
+            (await refetchByTypeAndReturnRef.current[type]()) as
+              | { uuid: string; status?: string }[]
+              | undefined,
+          // Read through the ref on every poll: a client configured mid-wait
+          // should start being consulted, as it did when this loop was inline.
+          getDeployment: (uuid) =>
+            clientRef.current
+              ? clientRef.current.getDeployment(uuid)
+              : Promise.reject(new Error('No Coolify client configured')),
+        },
+      ),
     [],
   )
 

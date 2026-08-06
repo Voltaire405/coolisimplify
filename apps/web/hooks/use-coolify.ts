@@ -240,7 +240,10 @@ async function runAction(
   return await client.restartDatabase(uuid)
 }
 
-export type CompletionOutcome = 'completed' | 'failed' | 'timeout'
+// Defined alongside the poll loop that produces it, and re-exported here so the
+// queue's existing consumers keep their import path.
+export type { CompletionOutcome } from '@/lib/wait-for-completion'
+import type { CompletionOutcome } from '@/lib/wait-for-completion'
 
 export interface BatchQueueOptions {
   onResourceChanged?: (type: ResourceType) => void
