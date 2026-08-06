@@ -190,6 +190,17 @@ export interface BatchItem {
   status: 'pending' | 'in-progress' | 'completed' | 'failed'
   message?: string
   error?: string
+  /**
+   * Handle to the deployment Coolify queued, when it returned one. The only
+   * way to learn whether the deploy actually finished — the container status
+   * cannot tell a failed build from a successful one.
+   */
+  deploymentUuid?: string
+}
+
+interface ActionResult {
+  message?: string
+  deploymentUuid?: string
 }
 
 async function runAction(
@@ -198,45 +209,49 @@ async function runAction(
   action: BatchAction,
   uuid: string,
   deleteOptions?: DeleteOptions,
-): Promise<string | undefined> {
+): Promise<ActionResult> {
   if (type === 'application') {
-    if (action === 'start') return (await client.startApplication(uuid)).message
-    if (action === 'stop') return (await client.stopApplication(uuid)).message
+    if (action === 'stop') return await client.stopApplication(uuid)
+    if (action === 'delete')
+      return await client.deleteApplication(uuid, deleteOptions)
     // Coolify's "deploy/redeploy" for apps is the start endpoint: it queues a
     // full deployment (rolling update if possible). restart is restart_only.
-    if (action === 'deploy') return (await client.startApplication(uuid)).message
-    if (action === 'delete')
-      return (await client.deleteApplication(uuid, deleteOptions)).message
-    return (await client.restartApplication(uuid)).message
+    const res =
+      action === 'start' || action === 'deploy'
+        ? await client.startApplication(uuid)
+        : await client.restartApplication(uuid)
+    return { message: res.message, deploymentUuid: res.deployment_uuid }
   }
   if (type === 'service') {
-    if (action === 'start') return (await client.startService(uuid)).message
-    if (action === 'stop') return (await client.stopService(uuid)).message
+    if (action === 'start') return await client.startService(uuid)
+    if (action === 'stop') return await client.stopService(uuid)
     // Service "redeploy" equivalent: restart pulling the latest images.
     if (action === 'deploy')
-      return (await client.restartService(uuid, { latest: true })).message
+      return await client.restartService(uuid, { latest: true })
     if (action === 'delete')
-      return (await client.deleteService(uuid, deleteOptions)).message
-    return (await client.restartService(uuid)).message
+      return await client.deleteService(uuid, deleteOptions)
+    return await client.restartService(uuid)
   }
   if (action === 'deploy') throw new Error('Databases cannot be deployed')
-  if (action === 'start') return (await client.startDatabase(uuid)).message
-  if (action === 'stop') return (await client.stopDatabase(uuid)).message
+  if (action === 'start') return await client.startDatabase(uuid)
+  if (action === 'stop') return await client.stopDatabase(uuid)
   if (action === 'delete')
-    return (await client.deleteDatabase(uuid, deleteOptions)).message
-  return (await client.restartDatabase(uuid)).message
+    return await client.deleteDatabase(uuid, deleteOptions)
+  return await client.restartDatabase(uuid)
 }
 
-export type CompletionOutcome = 'completed' | 'timeout'
+export type CompletionOutcome = 'completed' | 'failed' | 'timeout'
 
 export interface BatchQueueOptions {
   onResourceChanged?: (type: ResourceType) => void
   onItemFailed?: (item: BatchItem) => void
   /**
    * Optional waiter invoked AFTER the API call returns and BEFORE the queue
-   * moves on to the next item. Should resolve when the resource has actually
-   * transitioned to the expected state (or when a sensible timeout elapses).
-   * When omitted, the queue moves on immediately after the API response.
+   * moves on to the next item. Resolves to `completed` once the action is
+   * confirmed, `failed` when the deployment itself reports a failure, or
+   * `timeout` when neither is established in time. When omitted, the queue
+   * moves on immediately after the API response — which only tells us the
+   * request was accepted, not that it worked.
    */
   waitForCompletion?: (item: BatchItem) => Promise<CompletionOutcome>
 }
@@ -296,15 +311,20 @@ export function useBatchQueue(options: BatchQueueOptions = {}) {
       for (let idx = 0; idx < pending.length; idx++) {
         const item = pending[idx]!
         let apiOk = true
+        let deploymentUuid: string | undefined
         try {
-          const message = await runAction(
+          const result = await runAction(
             c,
             item.resourceType,
             item.action,
             item.resourceUuid,
             item.deleteOptions,
           )
-          patchItem(item.id, { message })
+          deploymentUuid = result.deploymentUuid
+          patchItem(item.id, {
+            message: result.message,
+            deploymentUuid: result.deploymentUuid,
+          })
           onResourceChangedRef.current?.(item.resourceType)
         } catch (err) {
           apiOk = false
@@ -323,20 +343,21 @@ export function useBatchQueue(options: BatchQueueOptions = {}) {
 
         if (apiOk) {
           const waiter = waitForCompletionRef.current
-          const outcome = waiter ? await waiter(item) : 'completed'
+          const waited: BatchItem = { ...item, deploymentUuid }
+          const outcome = waiter ? await waiter(waited) : 'completed'
           if (outcome === 'completed') {
             patchItem(item.id, { status: 'completed' })
           } else {
-            const timeoutMsg = 'Timed out waiting for status to settle'
-            patchItem(item.id, {
-              status: 'failed',
-              error: timeoutMsg,
-            })
-            onItemFailedRef.current?.({
-              ...item,
-              status: 'failed',
-              error: timeoutMsg,
-            })
+            // `failed` is Coolify's own verdict on the deployment; `timeout` is
+            // our own giving up, which is not evidence either way. Keep them
+            // distinguishable — reporting an unknown outcome as a clean failure
+            // is the mirror of the bug this whole path exists to prevent.
+            const error =
+              outcome === 'failed'
+                ? `${item.action} failed`
+                : `Timed out waiting for ${item.action} to finish — outcome unknown`
+            patchItem(item.id, { status: 'failed', error })
+            onItemFailedRef.current?.({ ...waited, status: 'failed', error })
           }
         }
       }

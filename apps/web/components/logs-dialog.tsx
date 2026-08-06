@@ -17,6 +17,7 @@ import {
   filterLogLines,
   splitLogLines,
   tokenizeLogLine,
+  parseDeploymentLogs,
   LOG_LINE_OPTIONS,
   type LogLineOption,
   type LogLineParts,
@@ -67,6 +68,12 @@ function LogLine({ parts }: { parts: LogLineParts }) {
 interface LogsDialogProps {
   uuid: string
   name: string
+  /**
+   * Applications also have deployment logs — the build output that says *why*
+   * a deploy failed. The container endpoint cannot show that: on a failed
+   * build the container it reads from is the previous, still-working one.
+   */
+  resourceType?: 'application' | 'service' | 'database'
   /** Tail window; owned by the page so it survives between openings. */
   lines: LogLineOption
   showTimestamps: boolean
@@ -84,6 +91,14 @@ interface LogsDialogProps {
 type Loaded =
   | { key: string; status: 'ready'; logs: string }
   | { key: string; status: 'error'; message: string }
+
+/**
+ * Which log stream is on screen. `container` is what the process is printing
+ * now; `deployment` is the build output of the last deploy — the only place a
+ * failed build explains itself, since a failed build never replaces the
+ * container the other stream reads from.
+ */
+type LogSource = 'container' | 'deployment'
 
 function CopyLinesButton({ lines }: { lines: string[] }) {
   const [copied, setCopied] = useState(false)
@@ -121,6 +136,7 @@ function CopyLinesButton({ lines }: { lines: string[] }) {
 export function LogsDialog({
   uuid,
   name,
+  resourceType = 'application',
   lines,
   showTimestamps,
   onLinesChange,
@@ -130,23 +146,45 @@ export function LogsDialog({
   const { client } = useClient()
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [query, setQuery] = useState('')
+  const [source, setSource] = useState<LogSource>('container')
   // Bumped by Refresh to re-run the fetch with otherwise unchanged parameters.
   const [reloadToken, setReloadToken] = useState(0)
   const scrollRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
-  const requestKey = `${uuid}|${lines}|${showTimestamps}|${reloadToken}`
+  // Only applications have deployments; services and databases are restarted
+  // in place and have no build to show.
+  const canShowDeployment = resourceType === 'application'
+  const effectiveSource: LogSource = canShowDeployment ? source : 'container'
+
+  const requestKey = `${uuid}|${effectiveSource}|${lines}|${showTimestamps}|${reloadToken}`
 
   useEffect(() => {
     // Missing configuration is derived at render time, not stored: it is a
     // property of the settings, not the outcome of a request.
     if (!client) return
     let cancelled = false
-    client
-      .getApplicationLogs(uuid, { lines, show_timestamps: showTimestamps })
+    const request =
+      effectiveSource === 'deployment'
+        ? client
+            .listApplicationDeployments(uuid, { take: 1 })
+            .then(async (deployments) => {
+              const latest = deployments?.[0]
+              if (!latest) return { logs: '', empty: 'No deployments yet' }
+              // The list entry may omit the log body; fetch the record itself.
+              const full = latest.logs
+                ? latest
+                : await client.getDeployment(latest.deployment_uuid)
+              return { logs: parseDeploymentLogs(full.logs) }
+            })
+        : client
+            .getApplicationLogs(uuid, { lines, show_timestamps: showTimestamps })
+            .then((res) => ({ logs: res?.logs ?? '' }))
+
+    request
       .then((res) => {
         if (!cancelled)
-          setLoaded({ key: requestKey, status: 'ready', logs: res?.logs ?? '' })
+          setLoaded({ key: requestKey, status: 'ready', logs: res.logs })
       })
       .catch((err: unknown) => {
         if (cancelled) return
@@ -159,7 +197,7 @@ export function LogsDialog({
     return () => {
       cancelled = true
     }
-  }, [client, requestKey, uuid, lines, showTimestamps])
+  }, [client, requestKey, uuid, lines, showTimestamps, effectiveSource])
 
   const current = loaded?.key === requestKey ? loaded : null
   const notConfigured = !client
@@ -231,34 +269,71 @@ export function LogsDialog({
 
           {/* Everything past this divider costs a request; the search above does not. */}
           <div className="ml-auto flex items-center gap-2 border-l border-border pl-2">
-            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              Lines
-              <select
-                value={lines}
-                onChange={(e) =>
-                  onLinesChange(Number(e.target.value) as LogLineOption)
-                }
-                disabled={controlsDisabled}
-                className="h-7 rounded-md border border-border bg-background px-1.5 text-xs text-foreground disabled:opacity-40"
-              >
-                {LOG_LINE_OPTIONS.map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
+            {canShowDeployment && (
+              <div className="flex items-center rounded-md border border-border p-0.5">
+                {(
+                  [
+                    ['container', 'Container'],
+                    ['deployment', 'Build'],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setSource(value)}
+                    aria-pressed={effectiveSource === value}
+                    title={
+                      value === 'container'
+                        ? 'What the running container is printing'
+                        : 'Build output of the last deployment — where a failed deploy explains itself'
+                    }
+                    className={cn(
+                      'rounded px-2 py-0.5 text-xs',
+                      effectiveSource === value
+                        ? 'bg-muted text-foreground'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    {label}
+                  </button>
                 ))}
-              </select>
-            </label>
+              </div>
+            )}
 
-            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={showTimestamps}
-                onChange={(e) => onShowTimestampsChange(e.target.checked)}
-                disabled={controlsDisabled}
-                className="h-3.5 w-3.5 rounded border-border disabled:opacity-40"
-              />
-              Timestamps
-            </label>
+            {/* Tail window and timestamps are parameters of the container
+                endpoint; a deployment's log arrives whole and has neither. */}
+            {effectiveSource === 'container' && (
+              <>
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  Lines
+                  <select
+                    value={lines}
+                    onChange={(e) =>
+                      onLinesChange(Number(e.target.value) as LogLineOption)
+                    }
+                    disabled={controlsDisabled}
+                    className="h-7 rounded-md border border-border bg-background px-1.5 text-xs text-foreground disabled:opacity-40"
+                  >
+                    {LOG_LINE_OPTIONS.map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={showTimestamps}
+                    onChange={(e) => onShowTimestampsChange(e.target.checked)}
+                    disabled={controlsDisabled}
+                    className="h-3.5 w-3.5 rounded border-border disabled:opacity-40"
+                  />
+                  Timestamps
+                </label>
+              </>
+            )}
 
             <button
               type="button"

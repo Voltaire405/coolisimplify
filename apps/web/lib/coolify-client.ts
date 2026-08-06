@@ -21,6 +21,8 @@ import type {
   DatabaseCreate,
   DeleteOptions,
   LogsResponse,
+  Deployment,
+  DeploymentListResponse,
 } from './types'
 import type { ResourceType } from './types'
 import { envBasePath, envItemPath } from './envs.ts'
@@ -253,6 +255,37 @@ export class CoolifyClient {
       params.set('show_timestamps', String(opts.show_timestamps))
     const qs = params.toString() ? `?${params.toString()}` : ''
     return this.request<LogsResponse>(`/applications/${uuid}/logs${qs}`)
+  }
+
+  /**
+   * The authoritative outcome of a deploy. `start`/`restart` only answer
+   * "queued"; this is what says whether the deployment finished or failed.
+   */
+  getDeployment(deploymentUuid: string): Promise<Deployment> {
+    return this.request<Deployment>(`/deployments/${deploymentUuid}`)
+  }
+
+  /**
+   * Deployment history, newest first.
+   *
+   * The spec is wrong about this one twice over: it documents a bare array of
+   * `Application`, while the instance returns `{ count, deployments }` with
+   * deployment records. Verified against a live v4 instance — trusting the
+   * document would silently yield an empty history forever.
+   */
+  async listApplicationDeployments(
+    uuid: string,
+    opts?: { skip?: number; take?: number },
+  ): Promise<Deployment[]> {
+    const params = new URLSearchParams()
+    if (opts?.skip !== undefined) params.set('skip', String(opts.skip))
+    if (opts?.take !== undefined) params.set('take', String(opts.take))
+    const qs = params.toString() ? `?${params.toString()}` : ''
+    const res = await this.request<Deployment[] | DeploymentListResponse>(
+      `/deployments/applications/${uuid}${qs}`,
+    )
+    // Tolerate the documented shape too, in case a version returns it.
+    return Array.isArray(res) ? res : (res?.deployments ?? [])
   }
 
   // Services

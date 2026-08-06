@@ -13,6 +13,7 @@ import {
   filterLogLines,
   splitLogLines,
   tokenizeLogLine,
+  parseDeploymentLogs,
   LOG_LINE_OPTIONS,
   DEFAULT_LOG_LINES,
 } from '../apps/web/lib/logs.ts'
@@ -106,6 +107,69 @@ assert.equal(isNeverDeployed('Never Deployed'), true)
 assert.equal(isNeverDeployed(undefined), false)
 assert.equal(isNeverDeployed(null), false)
 assert.equal(isNeverDeployed(''), false)
+
+// --- deployment logs ---------------------------------------------------------
+// Unlike the container endpoint's flat blob, a deployment's `logs` is a JSON
+// array of build steps. This is the stream that says *why* a deploy failed —
+// the container one cannot, because a failed build never replaces the
+// container it reads from.
+// Entry shape verified against a live v4 instance: command/output/type/
+// timestamp/hidden/batch, `command` frequently null, and no sequence field —
+// the array arrives in execution order and must be kept that way.
+const buildLog = JSON.stringify([
+  {
+    command: null,
+    output: 'Starting deployment',
+    type: 'stdout',
+    timestamp: '2026-08-05T12:00:00Z',
+    batch: 1,
+  },
+  { command: 'docker build .', output: null, type: 'stdout', batch: 1 },
+  { command: null, output: 'ERROR: failed to solve', type: 'stderr', batch: 1 },
+  { command: null, output: 'internal bookkeeping', hidden: true, batch: 1 },
+])
+assert.deepEqual(splitLogLines(parseDeploymentLogs(buildLog)), [
+  '2026-08-05T12:00:00Z Starting deployment',
+  'docker build .',
+  'ERROR: failed to solve',
+])
+
+// Order comes from the array itself. Sorting on a key the records do not carry
+// would silently scramble build output.
+assert.deepEqual(
+  splitLogLines(
+    parseDeploymentLogs(
+      JSON.stringify([{ output: 'first' }, { output: 'second' }]),
+    ),
+  ),
+  ['first', 'second'],
+)
+
+// A timestamp stamps the first line only — the rest of a multi-line entry did
+// not happen at that instant.
+assert.deepEqual(
+  splitLogLines(
+    parseDeploymentLogs(
+      JSON.stringify([{ output: 'line one\nline two', timestamp: '12:00:00' }]),
+    ),
+  ),
+  ['12:00:00 line one', 'line two'],
+)
+
+// Unparseable input is shown rather than swallowed: a build that died early may
+// hold a bare error string, and showing it beats showing nothing.
+assert.equal(parseDeploymentLogs('boom: not json'), 'boom: not json')
+assert.equal(parseDeploymentLogs('{"not":"an array"}'), '{"not":"an array"}')
+// Nothing to show stays empty rather than becoming a phantom line.
+assert.equal(parseDeploymentLogs(''), '')
+assert.equal(parseDeploymentLogs(null), '')
+assert.equal(parseDeploymentLogs(undefined), '')
+assert.equal(parseDeploymentLogs('[]'), '')
+// The filter and highlighter work on the result like any other log text.
+assert.deepEqual(filterLogLines(parseDeploymentLogs(buildLog), 'error'), [
+  'ERROR: failed to solve',
+])
+assert.equal(tokenizeLogLine('ERROR: failed to solve').severity, 'error')
 
 // --- syntax highlighting -----------------------------------------------------
 const kinds = (line) => tokenizeLogLine(line).segments.map((s) => s.kind)

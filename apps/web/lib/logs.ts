@@ -39,6 +39,55 @@ export function filterLogLines(logs: string, query: string): string[] {
   return lines.filter((line) => line.toLowerCase().includes(needle))
 }
 
+// --- deployment logs ---------------------------------------------------------
+// A deployment's `logs` field is not a text blob like the container endpoint's:
+// Coolify stores a JSON array of build steps. Verified against a live v4
+// instance, each entry is `{ command, output, type, timestamp, hidden, batch }`
+// — `command` is often null with the content in `output` — and the array
+// already arrives in execution order. Rendering it raw shows a wall of escaped
+// JSON, so it is flattened to the line-oriented shape the viewer speaks.
+
+interface DeploymentLogEntry {
+  output?: string
+  command?: string
+  timestamp?: string
+  type?: string
+  hidden?: boolean
+}
+
+/**
+ * Flattens a deployment's stored log into plain lines. Anything unparseable is
+ * returned as-is: a build that failed early may hold a bare error string, and
+ * showing it beats showing nothing.
+ *
+ * `hidden` entries are Coolify's own internal bookkeeping and are dropped.
+ * Array order is preserved rather than sorted on a key: the records carry no
+ * sequence field, and reordering build output would be worse than useless.
+ */
+export function parseDeploymentLogs(raw?: string | null): string {
+  if (!raw) return ''
+  let entries: unknown
+  try {
+    entries = JSON.parse(raw)
+  } catch {
+    return raw
+  }
+  if (!Array.isArray(entries)) return raw
+  return (entries as DeploymentLogEntry[])
+    .filter((e) => e && typeof e === 'object' && !e.hidden)
+    .map((e) => {
+      const body = e.output ?? e.command ?? ''
+      const prefix = e.timestamp ? `${e.timestamp} ` : ''
+      // An entry's output may itself be multi-line; keep the timestamp on the
+      // first line only so the rest is not falsely stamped.
+      return splitLogLines(String(body))
+        .map((line, i) => (i === 0 ? `${prefix}${line}` : line))
+        .join('\n')
+    })
+    .filter((chunk) => chunk.length > 0)
+    .join('\n')
+}
+
 // --- syntax highlighting -----------------------------------------------------
 // Container output has no schema, so this recognises the shapes that show up in
 // practice rather than parsing a format. Anything unrecognised stays plain,

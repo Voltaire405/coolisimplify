@@ -13,6 +13,7 @@ import {
   useClient,
   isResourceActive,
 } from '@/hooks/use-coolify'
+import { judgeAction, timeoutMessage } from '@/lib/deploy-verdict'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { ConfigButton } from '@/components/config-button'
 import { Sidebar } from '@/components/sidebar'
@@ -55,6 +56,7 @@ import {
   X,
   Loader2,
   AlertCircle,
+  CheckCircle2,
   RefreshCw,
   Menu,
 } from 'lucide-react'
@@ -79,10 +81,17 @@ import {
   type TreeNode,
 } from '@/lib/tree'
 
+// How long an action may stay unresolved before we stop waiting. A deploy runs
+// a full build pipeline, so it gets the same budget the batch queue uses.
+const PENDING_TIMEOUT_MS = 120_000
+const DEPLOY_TIMEOUT_MS = 5 * 60_000
+
 interface Toast {
   id: string
   message: string
-  type: 'success' | 'error'
+  // `info` is for "the API accepted this", which is not the same as "it
+  // worked" — the outcome of a deploy only lands later, as success or error.
+  type: 'success' | 'error' | 'info'
 }
 
 interface Section {
@@ -183,6 +192,10 @@ function DashboardPage() {
     type: ResourceType
     action: RowAction
     startedAt: number
+    /** Deployment handle returned by start/restart, when Coolify issued one. */
+    deploymentUuid?: string
+    /** Latest `status` read from that deployment; the authoritative verdict. */
+    deploymentStatus?: string
   }
   const [pending, setPending] = useState<Map<string, PendingAction>>(
     () => new Map(),
@@ -194,6 +207,25 @@ function DashboardPage() {
         const next = new Map(prev)
         next.set(uuid, { type, action, startedAt: Date.now() })
         return next
+      })
+    },
+    [],
+  )
+
+  /** Records what the poller learns about a pending action's deployment. */
+  const patchPending = useCallback(
+    (uuid: string, patch: Partial<PendingAction>) => {
+      setPending((prev) => {
+        const current = prev.get(uuid)
+        if (!current) return prev
+        const merged = { ...current, ...patch }
+        if (
+          merged.deploymentUuid === current.deploymentUuid &&
+          merged.deploymentStatus === current.deploymentStatus
+        ) {
+          return prev
+        }
+        return new Map(prev).set(uuid, merged)
       })
     },
     [],
@@ -237,12 +269,18 @@ function DashboardPage() {
     }
   }, [refetchApplications, refetchServices, refetchDatabases])
 
+  const clientRef = useRef(client)
+  useEffect(() => {
+    clientRef.current = client
+  }, [client])
+
   const waitForCompletion = useCallback(
     async (item: {
       resourceUuid: string
       resourceType: ResourceType
       action: RowAction
-    }): Promise<'completed' | 'timeout'> => {
+      deploymentUuid?: string
+    }): Promise<'completed' | 'failed' | 'timeout'> => {
       const startedAt = Date.now()
       // App deploy runs a full build pipeline; app restart_only is faster but
       // both go through the deployment queue, so give them the long budget.
@@ -254,8 +292,6 @@ function DashboardPage() {
         : item.action === 'delete'
           ? 60_000
           : 2 * 60_000
-      const minRestartAgeMs =
-        item.action === 'restart' || item.action === 'deploy' ? 8_000 : 0
       const pollIntervalMs = 3000
       const deadline = startedAt + timeoutMs
 
@@ -269,19 +305,32 @@ function DashboardPage() {
         }
         const resource = list?.find((r) => r.uuid === item.resourceUuid)
 
-        if (item.action === 'delete') {
-          if (list && !resource) return 'completed'
-        } else if (resource) {
-          const active = isResourceActive(resource.status)
-          const age = Date.now() - startedAt
-          if (item.action === 'start' && active) return 'completed'
-          if (item.action === 'stop' && !active) return 'completed'
-          if (
-            (item.action === 'restart' || item.action === 'deploy') &&
-            active &&
-            age >= minRestartAgeMs
-          )
-            return 'completed'
+        // The deployment record is the only thing that knows whether the build
+        // worked; the container keeps reporting the *previous* image until it
+        // is replaced, so it looks identical on success and failure.
+        let deploymentStatus: string | undefined
+        if (item.deploymentUuid && clientRef.current) {
+          try {
+            deploymentStatus = (
+              await clientRef.current.getDeployment(item.deploymentUuid)
+            ).status
+          } catch {
+            // Transient: fall through and let the next poll retry rather than
+            // inventing a verdict from a failed lookup.
+          }
+        }
+
+        // A listing we could not read is not evidence the resource is gone.
+        if (list) {
+          const verdict = judgeAction({
+            action: item.action as 'start' | 'stop' | 'restart' | 'deploy' | 'delete',
+            resourcePresent: !!resource,
+            containerStatus: resource?.status,
+            deploymentStatus,
+            elapsedMs: Date.now() - startedAt,
+          })
+          if (verdict === 'succeeded') return 'completed'
+          if (verdict === 'failed') return 'failed'
         }
 
         if (Date.now() + pollIntervalMs >= deadline) break
@@ -292,9 +341,23 @@ function DashboardPage() {
     [],
   )
 
+  // `addToast` is declared further down; a ref lets the queue callbacks reach
+  // it without reordering the component.
+  const addToastRef = useRef<(message: string, type: Toast['type']) => void>(
+    () => {},
+  )
+
   const queue = useBatchQueue({
     onResourceChanged: refetchByType,
-    onItemFailed: (item) => clearPending(item.resourceUuid),
+    onItemFailed: (item) => {
+      clearPending(item.resourceUuid)
+      // A batch item that failed used to disappear into the queue panel; a
+      // deploy that broke deserves to be said out loud.
+      addToastRef.current(
+        `${item.resourceName}: ${item.error ?? `${item.action} failed`}`,
+        'error',
+      )
+    },
     waitForCompletion,
   })
 
@@ -476,7 +539,7 @@ function DashboardPage() {
   }
   const [batchConfigTargetState, setBatchConfigTargetState] =
     useState<BatchConfigTargetState | null>(null)
-  type LogsTarget = { uuid: string; name: string }
+  type LogsTarget = { uuid: string; name: string; type: ResourceType }
   const [logsTarget, setLogsTarget] = useState<LogsTarget | null>(null)
   // Viewer settings live here rather than inside the dialog so they carry over
   // to the next resource you open. Deliberately not persisted: a 5000-line
@@ -572,6 +635,9 @@ function DashboardPage() {
       setToasts((prev) => prev.filter((t) => t.id !== id))
     }, 4000)
   }, [])
+  useEffect(() => {
+    addToastRef.current = addToast
+  }, [addToast])
 
   const handleToggleSelect = useCallback((id: string) => {
     setSelected((prev) => {
@@ -669,13 +735,20 @@ function DashboardPage() {
       startPending(uuid, type, action)
       try {
         if (type === 'application') {
-          if (action === 'start') await client.startApplication(uuid)
-          else if (action === 'stop') await client.stopApplication(uuid)
-          else if (action === 'restart') await client.restartApplication(uuid)
-          // App deploy/redeploy = the start endpoint: queues a full
-          // deployment (rolling update if possible).
-          else if (action === 'deploy') await client.startApplication(uuid)
-          else await client.deleteApplication(uuid, deleteOpts)
+          if (action === 'stop') await client.stopApplication(uuid)
+          else if (action === 'delete') await client.deleteApplication(uuid, deleteOpts)
+          else {
+            // App deploy/redeploy = the start endpoint: queues a full
+            // deployment (rolling update if possible). Keep the handle it
+            // returns — it is the only route to the real outcome.
+            const res =
+              action === 'restart'
+                ? await client.restartApplication(uuid)
+                : await client.startApplication(uuid)
+            if (res.deployment_uuid) {
+              patchPending(uuid, { deploymentUuid: res.deployment_uuid })
+            }
+          }
         } else if (type === 'service') {
           if (action === 'start') await client.startService(uuid)
           else if (action === 'stop') await client.stopService(uuid)
@@ -690,9 +763,11 @@ function DashboardPage() {
           else if (action === 'restart') await client.restartDatabase(uuid)
           else await client.deleteDatabase(uuid, deleteOpts)
         }
+        // Deliberately "queued", not "done": all the API has told us is that it
+        // accepted the request. The verdict arrives from the resolver below.
         addToast(
           `${action.charAt(0).toUpperCase() + action.slice(1)} ${type} queued`,
-          'success',
+          'info',
         )
       } catch (err) {
         addToast(err instanceof Error ? err.message : 'Action failed', 'error')
@@ -700,10 +775,10 @@ function DashboardPage() {
         clearPending(uuid)
       }
       // On success we leave `pending` in place — the resolver effect clears
-      // it once the resource's real status reflects the expected outcome.
+      // it once the action's real outcome is established.
       refetchByType(type)
     },
-    [client, addToast, refetchByType, isResourceBusy, startPending, clearPending, applications, services, databases],
+    [client, addToast, refetchByType, isResourceBusy, startPending, clearPending, patchPending, applications, services, databases],
   )
 
   const handleAction = useCallback(
@@ -711,7 +786,7 @@ function DashboardPage() {
       // Ahead of the busy guard: reading logs mutates nothing, and a deploy in
       // flight is exactly when they matter.
       if (action === 'logs') {
-        setLogsTarget({ uuid, name: findName(uuid) })
+        setLogsTarget({ uuid, name: findName(uuid), type })
         return
       }
       if (isResourceBusy(uuid)) return
@@ -1185,20 +1260,29 @@ function DashboardPage() {
     [addToast, refetchAllEnvironments, refetchByType],
   )
 
-  // Resolver: when the resource's status reflects the expected outcome of a
-  // pending action, clear the flag. Also enforces a hard safety timeout so
-  // a pill cannot get permanently stuck if Coolify never converges.
-  const PENDING_TIMEOUT_MS = 120_000
-  const RESTART_MIN_AGE_MS = 8_000
+  // Resolver: establishes the real outcome of a pending action and clears the
+  // flag, reporting a failure as a failure. Also enforces a hard safety
+  // timeout so a pill cannot get permanently stuck if nothing ever converges.
+  //
+  // An app deploy runs a full build pipeline, so it gets the same long budget
+  // the batch queue uses — the old 120s ceiling abandoned slow-but-fine
+  // deploys before they could report anything.
   useEffect(() => {
     if (pending.size === 0) return
     const now = Date.now()
     const toClear: string[] = []
     const toClearRedeploy: string[] = []
+    const failures: { uuid: string; action: RowAction; reason: string }[] = []
     for (const [uuid, p] of pending) {
       const age = now - p.startedAt
-      if (age > PENDING_TIMEOUT_MS) {
+      const isDeployLike =
+        p.type === 'application' &&
+        (p.action === 'deploy' || p.action === 'restart' || p.action === 'start')
+      if (age > (isDeployLike ? DEPLOY_TIMEOUT_MS : PENDING_TIMEOUT_MS)) {
         toClear.push(uuid)
+        // Giving up is not evidence of success *or* failure; say so rather
+        // than silently dropping the pill as if all were well.
+        failures.push({ uuid, action: p.action, reason: timeoutMessage(p.action) })
         continue
       }
       const list =
@@ -1210,32 +1294,38 @@ function DashboardPage() {
       const resource = list.find((r) => r.uuid === uuid) as
         | { status?: string; build_pack?: string }
         | undefined
-      if (p.action === 'delete') {
-        if (!resource) toClear.push(uuid)
+      const verdict = judgeAction({
+        action: p.action as 'start' | 'stop' | 'restart' | 'deploy' | 'delete',
+        resourcePresent: !!resource,
+        containerStatus: resource?.status,
+        deploymentStatus: p.deploymentStatus,
+        elapsedMs: age,
+      })
+      if (verdict === 'waiting') continue
+      toClear.push(uuid)
+      if (verdict === 'failed') {
+        failures.push({ uuid, action: p.action, reason: `${p.action} failed` })
+        // The Redeploy-needed chip deliberately survives: the config was saved
+        // but demonstrably not applied (ADR-0005).
         continue
       }
-      if (!resource) continue
-      const active = isResourceActive(resource.status)
-      if (p.action === 'start' && active) toClear.push(uuid)
-      else if (p.action === 'stop' && !active) toClear.push(uuid)
-      else if (
+      // A converging deploy clears the marker for all apps; a converging
+      // restart only for dockerimage apps (ADR-0005).
+      if (
         (p.action === 'restart' || p.action === 'deploy') &&
-        active &&
-        age >= RESTART_MIN_AGE_MS
+        redeployClearedBy(resource?.build_pack, p.action)
       ) {
-        toClear.push(uuid)
-        // A converging deploy clears the marker for all apps; a converging
-        // restart only for dockerimage apps (ADR-0005).
-        if (redeployClearedBy(resource.build_pack, p.action)) {
-          toClearRedeploy.push(uuid)
-        }
+        toClearRedeploy.push(uuid)
       }
     }
     if (toClear.length === 0) return
     // Cascading update is bounded: each entry resolves at most once per
     // data refetch, the resolver only fires while pending.size > 0, and
     // we early-return when nothing needs clearing.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    /* eslint-disable react-hooks/set-state-in-effect */
+    for (const f of failures) {
+      addToast(`${findName(f.uuid)}: ${f.reason}`, 'error')
+    }
     setPending((prev) => {
       const next = new Map(prev)
       for (const uuid of toClear) next.delete(uuid)
@@ -1248,7 +1338,8 @@ function DashboardPage() {
         return next
       })
     }
-  }, [pending, applications, services, databases])
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [pending, applications, services, databases, addToast, findName])
 
   // While any action is pending, poll the relevant lists every few seconds
   // so the pill clears soon after the container actually transitions.
@@ -1256,16 +1347,36 @@ function DashboardPage() {
     if (pending.size === 0) return
     const types = new Set<ResourceType>()
     for (const p of pending.values()) types.add(p.type)
+    // Deployment handles to follow. The container status cannot distinguish a
+    // failed build from a successful one, so for anything that queued a
+    // deployment this is the signal that actually decides the outcome.
+    const deployments: { uuid: string; deploymentUuid: string }[] = []
+    for (const [uuid, p] of pending) {
+      if (p.deploymentUuid) deployments.push({ uuid, deploymentUuid: p.deploymentUuid })
+    }
     const tick = () => {
       for (const t of types) {
         if (t === 'application') void refetchApplications()
         else if (t === 'service') void refetchServices()
         else void refetchDatabases()
       }
+      const c = clientRef.current
+      if (!c) return
+      for (const d of deployments) {
+        void c
+          .getDeployment(d.deploymentUuid)
+          .then((deployment) =>
+            patchPending(d.uuid, { deploymentStatus: deployment.status }),
+          )
+          // A failed lookup is not a failed deploy: leave the last known
+          // status alone and retry on the next tick.
+          .catch(() => {})
+      }
     }
+    tick()
     const id = window.setInterval(tick, 3000)
     return () => window.clearInterval(id)
-  }, [pending, refetchApplications, refetchServices, refetchDatabases])
+  }, [pending, refetchApplications, refetchServices, refetchDatabases, patchPending])
 
   const allLoading = projectsLoading || appsLoading || servicesLoading || dbsLoading
 
@@ -2031,6 +2142,7 @@ function DashboardPage() {
         <LogsDialog
           uuid={logsTarget.uuid}
           name={logsTarget.name}
+          resourceType={logsTarget.type}
           lines={logLines}
           showTimestamps={logTimestamps}
           onLinesChange={setLogLines}
@@ -2052,6 +2164,8 @@ function DashboardPage() {
           >
             {toast.type === 'error' ? (
               <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 sm:mt-0" />
+            ) : toast.type === 'success' ? (
+              <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 sm:mt-0" />
             ) : (
               <RotateCcw className="mt-0.5 h-3.5 w-3.5 shrink-0 sm:mt-0" />
             )}

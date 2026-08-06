@@ -45,8 +45,16 @@ The worst state among a Sidebar node's descendant Resources, shown as a LED on t
 _Avoid_: Aggregate status, health indicator
 
 **Redeploy-needed**:
-The state of an Application whose configured Docker image tag or git branch differs from what the running container was last started with. Derived client-side (not persisted): the marker is raised when the tag/branch is edited and cleared when a Redeploy converges, or when a Restart converges for a Docker-image Application (Coolify forces restart-only off for dockerimage apps, so a Restart pulls the new tag). Shown as a chip on the Resource row.
+The state of an Application whose configured Docker image tag or git branch differs from what the running container was last started with. Derived client-side (not persisted): the marker is raised when the tag/branch is edited and cleared when a Redeploy succeeds, or when a Restart succeeds for a Docker-image Application (Coolify forces restart-only off for dockerimage apps, so a Restart pulls the new tag). A failed deploy leaves it standing. Shown as a chip on the Resource row.
 _Avoid_: Restart-needed, needs-redeploy, pending-deploy
+
+**Deployment**:
+One build-and-release run of an Application, identified by the `deployment_uuid` that Deploy and Restart return. It is distinct from the **Resource**'s container: a failed Deployment leaves the previous container running and healthy, so the container says nothing about whether the Deployment worked.
+_Avoid_: Build, release, job
+
+**Verdict**:
+The established outcome of a dispatched action — succeeded, failed, or still waiting. For an Application it comes from the **Deployment**'s status (`finished`/`failed`/`cancelled-by-user`); for Services and Databases, which have no Deployment, from the container status. Distinct from *queued*, which only means the API accepted the request. Timing out is not a verdict.
+_Avoid_: Result, state, convergence
 
 **Batch Queue**:
 The ordered set of selected Resources awaiting a batch action; selection order is execution order. It persists across Sidebar navigation and is shown as removable chips in the floating bar.

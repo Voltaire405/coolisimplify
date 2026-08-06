@@ -278,6 +278,35 @@ export interface StartResponse {
   deployment_uuid?: string
 }
 
+/**
+ * A deployment record — the only place Coolify says whether a deploy actually
+ * worked. `status` is `queued | in_progress | finished | failed |
+ * cancelled-by-user`; the container status in the resource listing says nothing
+ * about it, since a failed build leaves the previous container running.
+ */
+export interface Deployment {
+  deployment_uuid: string
+  status: string
+  application_name?: string
+  commit?: string
+  commit_message?: string
+  logs?: string
+  deployment_url?: string
+  created_at?: string
+  updated_at?: string
+  finished_at?: string
+}
+
+/**
+ * What `/deployments/applications/{uuid}` actually returns — an envelope, not
+ * the bare array the spec documents. `count` is the full history size, while
+ * `deployments` holds only the requested page, newest first.
+ */
+export interface DeploymentListResponse {
+  count: number
+  deployments: Deployment[]
+}
+
 export interface StopResponse {
   message: string
 }
