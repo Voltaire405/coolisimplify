@@ -2,7 +2,7 @@
 
 ## User Preferences
 
-Read @CLAUDE.local.md if exist
+- Always find @CLAUDE.local.md at the begining to read user preferences.
 
 ## Agent skills
 
