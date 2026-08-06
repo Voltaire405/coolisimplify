@@ -54,3 +54,17 @@ export function isValueReadable(
 export function envSupportsPreview(type: ResourceType): boolean {
   return type !== 'database'
 }
+
+/**
+ * Case-insensitive substring match on the key only. Used by the Env Editor's
+ * search box to narrow the list down to the variables worth editing; values are
+ * intentionally ignored — they may be masked or hold secrets.
+ */
+export function filterEnvsByKey<T extends { key: string }>(
+  envs: T[],
+  query: string,
+): T[] {
+  const q = query.trim().toLowerCase()
+  if (!q) return envs
+  return envs.filter((e) => e.key.toLowerCase().includes(q))
+}

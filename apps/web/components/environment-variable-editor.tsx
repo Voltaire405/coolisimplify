@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Eye,
   EyeOff,
@@ -8,6 +8,7 @@ import {
   Pencil,
   Plus,
   Save,
+  Search,
   Trash2,
   X,
 } from 'lucide-react'
@@ -17,6 +18,7 @@ import type { CoolifyClient } from '@/lib/coolify-client'
 import {
   envSupportsPreview,
   envValue,
+  filterEnvsByKey,
   isValueReadable,
 } from '@/lib/envs'
 
@@ -85,6 +87,10 @@ export function EnvironmentVariableEditor({
   // Row-scoped error: `{ uuid, message }` where uuid is the env uuid or the
   // reserved '__add__' for the add row. Rendered on the row it belongs to.
   const [rowError, setRowError] = useState<{ uuid: string; message: string } | null>(null)
+  // List-level masking: every readable value is masked until "Reveal all".
+  const [revealed, setRevealed] = useState(false)
+  // Key-only search box; narrowed rows are filtered out of the list.
+  const [query, setQuery] = useState('')
 
   const load = useCallback(async () => {
     setLoadError(null)
@@ -100,10 +106,24 @@ export function EnvironmentVariableEditor({
     void load()
   }, [load])
 
+  // Re-targeting the drawer to another resource must start the Env Editor
+  // fresh: drop the previous resource's search query and reveal state.
+  useEffect(() => {
+    setQuery('')
+    setRevealed(false)
+  }, [resourceUuid])
+
   const canAdd = useMemo(() => {
     if (!adding || !addingDraft) return false
     return validateKey(addingDraft.key, envs ?? [], null) === null
   }, [adding, addingDraft, envs])
+
+  const visibleEnvs = useMemo(
+    () => filterEnvsByKey(envs ?? [], query),
+    [envs, query],
+  )
+
+  const isFiltering = query.trim() !== ''
 
   function validateKey(
     key: string,
@@ -331,28 +351,76 @@ export function EnvironmentVariableEditor({
     )
   }
 
+  const totalCount = envs.length
+
   return (
     <div>
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-muted-foreground">Environment variables</span>
-        <span className="text-xs text-muted-foreground">
-          {envs.length} {envs.length === 1 ? 'variable' : 'variables'}
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-medium text-foreground">Environment variables</span>
+        <span className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            {isFiltering
+              ? `${visibleEnvs.length} of ${totalCount} ${totalCount === 1 ? 'variable' : 'variables'}`
+              : `${totalCount} ${totalCount === 1 ? 'variable' : 'variables'}`}
+          </span>
+          <button
+            type="button"
+            onClick={() => setRevealed((r) => !r)}
+            aria-label={revealed ? 'Hide all values' : 'Reveal all values'}
+            title={revealed ? 'Hide all values' : 'Reveal all values'}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
+          >
+            {revealed ? (
+              <EyeOff className="h-3.5 w-3.5" />
+            ) : (
+              <Eye className="h-3.5 w-3.5" />
+            )}
+          </button>
         </span>
       </div>
 
+      <div className="relative mt-2">
+        <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search by key…"
+          aria-label="Search variables by key"
+          className="w-full rounded-md border border-border bg-background py-1 pl-7 pr-7 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-foreground/40"
+        />
+        {query && (
+          <button
+            type="button"
+            onClick={() => setQuery('')}
+            aria-label="Clear search"
+            title="Clear search"
+            className="absolute right-1.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-muted"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+
       {envs.length === 0 && !adding && (
-        <p className="mt-1 text-xs text-muted-foreground">
+        <p className="mt-2 text-xs text-muted-foreground">
           No environment variables yet.
         </p>
       )}
 
+      {envs.length > 0 && visibleEnvs.length === 0 && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          No variables match &ldquo;{query}&rdquo;.
+        </p>
+      )}
+
       <ul className="mt-2 space-y-1.5">
-        {envs.map((env) => {
+        {visibleEnvs.map((env) => {
           const editing = editingKey === env.uuid
           const saving = savingKey === env.uuid
           const confirming = confirmingDelete === env.uuid
           return (
-            <li key={env.uuid} className="rounded-md border border-border bg-muted/30 px-2 py-1.5">
+            <li key={env.uuid} className="rounded-md border border-border bg-muted/30 px-2.5 py-2">
               {editing ? (
                 <EnvRowForm
                   draft={draft ?? toDraft(env)}
@@ -389,6 +457,7 @@ export function EnvironmentVariableEditor({
               ) : (
                 <EnvRowDisplay
                   env={env}
+                  revealed={revealed}
                   onEdit={() => startEdit(env)}
                   onDelete={() => startConfirmDelete(env)}
                   disabled={savingKey !== null}
@@ -420,7 +489,7 @@ export function EnvironmentVariableEditor({
       </ul>
 
       <div className="mt-2">
-        {adding ? null : (
+        {adding || isFiltering ? null : (
           <button
             type="button"
             onClick={startAdd}
@@ -438,73 +507,58 @@ export function EnvironmentVariableEditor({
 
 function EnvRowDisplay({
   env,
+  revealed,
   onEdit,
   onDelete,
   disabled,
 }: {
   env: EnvironmentVariable
+  /** Whether the list-level "Reveal all" is active. */
+  revealed: boolean
   onEdit: () => void
   onDelete: () => void
   disabled: boolean
 }) {
-  const [revealed, setRevealed] = useState(false)
   const readable = isValueReadable(env)
   const shown = readable ? envValue(env) : ''
 
   return (
-    <div className="flex items-center gap-2">
-      <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">
-        {env.key}
-      </span>
-      <span className="flex min-w-0 flex-1 items-center gap-1">
-        {readable ? (
-          <span className="truncate font-mono text-xs text-muted-foreground">
-            {revealed ? shown : '••••••••••'}
-          </span>
-        ) : (
-          <span className="truncate text-xs italic text-muted-foreground">
-            value not readable
-          </span>
-        )}
-      </span>
-      {readable && (
-        <button
-          type="button"
-          onClick={() => setRevealed((r) => !r)}
-          aria-label={revealed ? 'Hide value' : 'Show value'}
-          title={revealed ? 'Hide value' : 'Show value'}
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
-        >
-          {revealed ? (
-            <EyeOff className="h-3.5 w-3.5" />
-          ) : (
-            <Eye className="h-3.5 w-3.5" />
-          )}
-        </button>
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-2">
+        <span className="min-w-0 flex-1 break-words whitespace-pre-wrap font-mono text-sm text-foreground">
+          {env.key}
+        </span>
+        <EnvBadges env={env} />
+        <span className="flex shrink-0 gap-0.5">
+          <button
+            type="button"
+            onClick={onEdit}
+            disabled={disabled}
+            aria-label={`Edit ${env.key}`}
+            title="Edit"
+            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted disabled:opacity-40"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={disabled}
+            aria-label={`Delete ${env.key}`}
+            title="Delete"
+            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted disabled:opacity-40"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </span>
+      </div>
+      {readable ? (
+        <div className="max-h-24 overflow-auto break-words whitespace-pre-wrap font-mono text-sm text-muted-foreground">
+          {revealed ? shown : '••••••••••'}
+        </div>
+      ) : (
+        <p className="text-xs italic text-muted-foreground">value not readable</p>
       )}
-      <EnvBadges env={env} />
-      <span className="flex shrink-0 gap-0.5">
-        <button
-          type="button"
-          onClick={onEdit}
-          disabled={disabled}
-          aria-label={`Edit ${env.key}`}
-          title="Edit"
-          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted disabled:opacity-40"
-        >
-          <Pencil className="h-3.5 w-3.5" />
-        </button>
-        <button
-          type="button"
-          onClick={onDelete}
-          disabled={disabled}
-          aria-label={`Delete ${env.key}`}
-          title="Delete"
-          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted disabled:opacity-40"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
-      </span>
     </div>
   )
 }
@@ -550,7 +604,7 @@ function EnvRowForm({
 }) {
   const supportsPreview = envSupportsPreview(type)
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-2">
       <div className="flex items-center gap-1.5">
         <input
           ref={(el) => {
@@ -572,26 +626,7 @@ function EnvRowForm({
           aria-label="Variable key"
           placeholder="KEY"
           disabled={saving}
-          className="w-32 rounded-md border border-border bg-background px-2 py-1 font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-foreground/40 disabled:opacity-50"
-        />
-        <input
-          type="text"
-          value={draft.value}
-          onChange={(e) => onChange({ ...draft, value: e.target.value })}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault()
-              onSave()
-            } else if (e.key === 'Escape') {
-              e.preventDefault()
-              onCancel()
-            }
-          }}
-          spellCheck={false}
-          aria-label="Variable value"
-          placeholder="value"
-          disabled={saving}
-          className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-foreground/40 disabled:opacity-50"
+          className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 font-mono text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-foreground/40 disabled:opacity-50"
         />
         <button
           type="button"
@@ -618,6 +653,22 @@ function EnvRowForm({
           <X className="h-3.5 w-3.5" />
         </button>
       </div>
+      <AutoGrowTextarea
+        value={draft.value}
+        onChange={(value) => onChange({ ...draft, value })}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault()
+            onSave()
+          } else if (e.key === 'Escape') {
+            e.preventDefault()
+            onCancel()
+          }
+        }}
+        ariaLabel="Variable value"
+        placeholder="value"
+        disabled={saving}
+      />
       <div className="flex items-center gap-3 pl-1">
         <EnvCheckbox
           label="Literal"
@@ -641,6 +692,52 @@ function EnvRowForm({
         )}
       </div>
     </div>
+  )
+}
+
+/**
+ * A `<textarea>` that grows with its content (auto-grow, no cap). Used for the
+ * env value so multiline values (PEM, JSON, compose) edit naturally; Enter
+ * inserts a newline and saving is Cmd/Ctrl+Enter or the Save button (see
+ * EnvRowForm).
+ */
+function AutoGrowTextarea({
+  value,
+  onChange,
+  onKeyDown,
+  ariaLabel,
+  placeholder,
+  disabled,
+}: {
+  value: string
+  onChange: (value: string) => void
+  onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void
+  ariaLabel: string
+  placeholder?: string
+  disabled?: boolean
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [value])
+
+  return (
+    <textarea
+      ref={ref}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onKeyDown={onKeyDown}
+      spellCheck={false}
+      aria-label={ariaLabel}
+      placeholder={placeholder}
+      disabled={disabled}
+      rows={1}
+      className="min-h-[2.125rem] w-full resize-y rounded-md border border-border bg-background px-2 py-1 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-foreground/40 disabled:opacity-50"
+    />
   )
 }
 

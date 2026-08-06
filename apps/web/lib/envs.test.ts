@@ -3,12 +3,13 @@
 // can send conforms to the env-var request schemas in coolify-openapi-v4.x.yaml.
 import { describe, expect, it } from 'vitest'
 import { specLines } from '../test/coolify-spec'
-import type { ResourceType } from './types'
+import type { EnvironmentVariable, ResourceType } from './types'
 import {
   envBasePath,
   envItemPath,
   envSupportsPreview,
   envValue,
+  filterEnvsByKey,
   isValueReadable,
 } from './envs'
 
@@ -53,6 +54,41 @@ describe('preview support', () => {
     expect(envSupportsPreview('application')).toBe(true)
     expect(envSupportsPreview('service')).toBe(true)
     expect(envSupportsPreview('database')).toBe(false)
+  })
+})
+
+describe('filterEnvsByKey', () => {
+  const env = (key: string): EnvironmentVariable => ({
+    id: 0,
+    uuid: key,
+    key,
+    value: '',
+  })
+
+  it('keeps every variable for an empty query', () => {
+    const list = [env('A'), env('B')]
+    expect(filterEnvsByKey(list, '')).toEqual(list)
+    expect(filterEnvsByKey(list, '   ')).toEqual(list)
+  })
+
+  it('matches by substring, case-insensitive', () => {
+    const list = [env('DATABASE_URL'), env('REDIS_URL'), env('PORT')]
+    expect(filterEnvsByKey(list, 'url')).toEqual([
+      env('DATABASE_URL'),
+      env('REDIS_URL'),
+    ])
+    expect(filterEnvsByKey(list, 'DATABASE')).toEqual([env('DATABASE_URL')])
+    expect(filterEnvsByKey(list, 'port')).toEqual([env('PORT')])
+  })
+
+  it('returns an empty array when nothing matches', () => {
+    const list = [env('DATABASE_URL')]
+    expect(filterEnvsByKey(list, 'nope')).toEqual([])
+  })
+
+  it('does not match against values, only keys', () => {
+    const list = [env('API_KEY')]
+    expect(filterEnvsByKey(list, 'secret')).toEqual([])
   })
 })
 
