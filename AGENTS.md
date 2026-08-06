@@ -1,5 +1,9 @@
 # Agent Instructions
 
+## User Preferences
+
+Read @CLAUDE.local.md if exist
+
 ## Agent skills
 
 ### Issue tracker
