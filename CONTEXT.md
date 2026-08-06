@@ -72,6 +72,10 @@ _Avoid_: Inspector, info panel, properties dialog
 A key/value pair scoped to a Resource. It is *not* the same as an **Environment** (the project grouping) — the two terms are often conflated, but an Env Var attaches to a single Resource via `resourceable_type`/`resourceable_id`.
 _Avoid_: Env, environment setting, configuration value
 
+**Preview Variable**:
+An **Environment Variable** that applies only to the preview deployments an Application raises from pull requests. It is a *separate record* from the ordinary variable — the Production Variable — that shares its key, not the same record wearing a flag: both coexist on the same Application, and a variable's identity is the pair (key, preview-or-not). Only an Application has them; a Service or Database never does.
+_Avoid_: Preview env, PR variable, staging variable, preview override
+
 **Env Editor**:
 The Variables tab of the **Drawer** that lists a Resource's Environment Variables and lets the user add, edit, and delete them. Distinct from **Details** (the metadata tab).
 _Avoid_: Variable manager, env panel, secrets editor
