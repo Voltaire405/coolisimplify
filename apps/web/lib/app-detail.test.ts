@@ -15,6 +15,7 @@ import {
   editableConfig,
   redeployClearedBy,
   sharedConfigValue,
+  versionLabel,
   type BatchConfigApp,
 } from './app-detail'
 
@@ -88,6 +89,45 @@ describe('dockerImageLabel', () => {
         docker_registry_image_tag: null,
       }),
     ).toBe('nginx')
+  })
+})
+
+describe('versionLabel', () => {
+  // The card shows the git branch for git-backed apps and the image tag for
+  // docker-image apps; nothing else (including services/databases) has either.
+  it('shows the git branch for a git-backed app', () => {
+    expect(versionLabel(gitApp)).toBe('main')
+  })
+
+  it('shows the image tag for a docker-image app', () => {
+    expect(versionLabel(dockerImageApp)).toBe('latest')
+  })
+
+  it('ignores the placeholder git branch on non-git apps', () => {
+    // Coolify hardcodes git_branch = 'main' on dockerimage/dockerfile apps;
+    // showing it would mislabel the row as git-backed.
+    expect(versionLabel(dockerfileApp)).toBeNull()
+  })
+
+  it('shows the branch for a Dockerfile inside a real git repo', () => {
+    expect(
+      versionLabel({
+        build_pack: 'dockerfile',
+        git_repository: 'org/repo',
+        git_branch: 'dev',
+        source_id: 3,
+      }),
+    ).toBe('dev')
+  })
+
+  it('returns null when the branch is empty', () => {
+    expect(
+      versionLabel({ build_pack: 'nixpacks', git_repository: 'org/repo', git_branch: '  ' }),
+    ).toBeNull()
+  })
+
+  it('returns null for an unsupported source', () => {
+    expect(versionLabel({ build_pack: 'nixpacks' })).toBeNull()
   })
 })
 

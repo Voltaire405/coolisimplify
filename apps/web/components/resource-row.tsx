@@ -26,6 +26,7 @@ import {
 } from '@/hooks/use-coolify'
 import { canRunAction, isNeverDeployed } from '@/lib/resource-state'
 import { isCloneable } from '@/lib/clone'
+import { versionLabel } from '@/lib/app-detail'
 
 interface ResourceRowProps {
   resource: Resource
@@ -103,6 +104,11 @@ export function ResourceRow({
   // destination.server; top-level server_id isn't reliable (see ADR-0001).
   const serverName = (resource as { destination?: { server?: { name?: string } } })
     .destination?.server?.name
+  // Only applications carry a branch (git) or image tag (docker-image); the
+  // value is classified via build_pack so Coolify's placeholder git fields on
+  // non-git apps never leak onto the card (see app-detail.ts).
+  const version =
+    type === 'application' ? versionLabel(resource as Parameters<typeof versionLabel>[0]) : null
   const Icon = typeIcons[type]
   // Scope: only applications expose a logs endpoint here (databases and
   // services have their own paths, services additionally needing a
@@ -243,7 +249,7 @@ export function ResourceRow({
                 </span>
               )}
             </span>
-            {(domain || serverName) && (
+            {(domain || serverName || version) && (
               <button
                 type="button"
                 onClick={onOpenProperties}
@@ -252,9 +258,18 @@ export function ResourceRow({
                 title="View details"
                 className="block w-full text-left disabled:cursor-default"
               >
-                <span className="block truncate text-xs leading-5 text-muted-foreground">
-                  {[domain, serverName].filter(Boolean).join(' · ')}
-                </span>
+                {domain && (
+                  <span className="block truncate text-xs leading-5 text-muted-foreground">
+                    {domain}
+                  </span>
+                )}
+                {(serverName || version) && (
+                  <span className="block truncate text-xs leading-5 text-muted-foreground">
+                    {serverName && <span>{serverName}</span>}
+                    {serverName && version && <span> · </span>}
+                    {version && <span className="font-mono">{version}</span>}
+                  </span>
+                )}
               </button>
             )}
           </div>

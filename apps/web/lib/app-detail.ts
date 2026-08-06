@@ -40,6 +40,35 @@ export function dockerImageLabel(
 }
 
 /**
+ * The branch (git) or image tag (docker-image) shown on the resource card.
+ * Only applications carry either concept, so this returns null for anything
+ * else. The value is derived with `classifyApplicationSource`, never from the
+ * git fields alone: Coolify stores a placeholder `git_repository`/`git_branch`
+ * on non-git apps, which would otherwise leak a fake "main" onto docker-image
+ * and dockerfile rows.
+ */
+export function versionLabel(
+  app: {
+    build_pack?: string
+    git_repository?: string | null
+    git_branch?: string | null
+    source_id?: string | number | null
+    private_key_id?: string | number | null
+    docker_registry_image_name?: string | null
+    docker_registry_image_tag?: string | null
+  },
+): string | null {
+  const source = classifyApplicationSource(app)
+  if (source === 'docker-image') {
+    return app.docker_registry_image_tag?.trim() || null
+  }
+  if (source === 'git') {
+    return app.git_branch?.trim() || null
+  }
+  return null
+}
+
+/**
  * Which config field the Details tab may edit for a given application, and its
  * current value. Only one field is ever editable: the Docker image tag for
  * dockerimage apps, or the git branch for git-backed apps. The image *name*

@@ -21,7 +21,7 @@ The host where resources run. Its canonical display name is the one embedded in 
 _Avoid_: Host, node, machine
 
 **Card**:
-The per-resource row in the main area's resource list (`ResourceRow`) that shows status, type, name, domain, and server name.
+The per-resource row in the main area's resource list (`ResourceRow`) that shows status, type, name, domain, and server name. For Applications it also shows the source version — the git branch for git-backed apps or the Docker image tag for docker-image apps — on a secondary line alongside the server. Services and Databases carry no version.
 _Avoid_: Tile, list item
 
 **Sidebar**:
