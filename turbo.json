@@ -1,6 +1,7 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "ui": "tui",
+  "globalDependencies": ["coolify-openapi-v4.x.yaml"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
@@ -16,6 +17,7 @@
     "typecheck": {
       "dependsOn": ["^typecheck"]
     },
+    "test": {},
     "dev": {
       "cache": false,
       "persistent": true

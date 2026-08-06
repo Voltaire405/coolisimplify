@@ -8,12 +8,7 @@
     "lint": "turbo lint",
     "format": "turbo format",
     "typecheck": "turbo typecheck",
-    "check:clone-payload": "node --experimental-strip-types scripts/check-clone-payload.mjs",
-    "check:clone-names": "node --experimental-strip-types scripts/check-clone-names.mjs",
-    "check:envs": "node --experimental-strip-types scripts/check-envs.mjs",
-    "check:app-detail": "node --experimental-strip-types scripts/check-app-detail.mjs",
-    "check:logs": "node --experimental-strip-types scripts/check-logs.mjs",
-    "check:deploy-verdict": "node --experimental-strip-types --disable-warning=DEP0205 --import ./scripts/register-alias.mjs scripts/check-deploy-verdict.mjs"
+    "test": "turbo test"
   },
   "devDependencies": {
     "@workspace/eslint-config": "workspace:*",

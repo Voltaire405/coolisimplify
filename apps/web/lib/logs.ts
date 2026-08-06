@@ -1,5 +1,5 @@
 // Pure helpers for the application logs viewer. Kept React-free so
-// scripts/check-logs.mjs can lock the behaviour without a DOM.
+// logs.test.ts can lock the behaviour without a DOM.
 //
 // The API hands back the whole tail as one `{ logs: string }` blob — no
 // streaming, no paging, no time range (see coolify-openapi-v4.x.yaml, path
