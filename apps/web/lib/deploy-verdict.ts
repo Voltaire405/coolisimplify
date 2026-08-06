@@ -41,6 +41,16 @@ export function isTerminalOutcome(outcome: DeploymentOutcome): boolean {
 }
 
 /**
+ * Whether a deployment record says the job itself completed. Callers use this
+ * to stamp the moment the build ended, which is where the container's grace
+ * window starts — see `sinceFinishedMs`. Exported so the two call sites do not
+ * each re-derive "is this `finished`?" from the raw string.
+ */
+export function isDeploymentFinished(status?: string | null): boolean {
+  return classifyDeploymentStatus(status) === 'succeeded'
+}
+
+/**
  * A container that came up but whose healthcheck is failing. Coolify reports
  * this as `running (unhealthy)`, which `classifyResourceState` folds into
  * `running` — correct for the status LED, wrong as proof a deploy worked.
@@ -60,6 +70,13 @@ export interface VerdictInput {
   /** `status` from `GET /deployments/{uuid}`, when a handle was returned. */
   deploymentStatus?: string | null
   elapsedMs: number
+  /**
+   * Milliseconds since the deployment was *first observed* `finished`. The
+   * container's grace window is measured from here, not from `elapsedMs`:
+   * the build is what took the time, and the new container only starts
+   * existing when the build ends. Absent (or 0) means "just finished".
+   */
+  sinceFinishedMs?: number
 }
 
 /**
@@ -68,6 +85,14 @@ export interface VerdictInput {
  * minimum age before a container-only verdict is trusted at all.
  */
 export const CONVERGENCE_GRACE_MS = 8_000
+
+/**
+ * How long the new container may take to come up after the build reported
+ * `finished` before its state is held against the deploy. Sized for a Docker
+ * healthcheck `start_period`, which is commonly 30–60 s: 8 s is a refetch lag,
+ * not a boot.
+ */
+export const POST_DEPLOY_GRACE_MS = 60_000
 
 export function judgeAction(input: VerdictInput): Verdict {
   const { action, resourcePresent, containerStatus, elapsedMs } = input
@@ -86,10 +111,23 @@ export function judgeAction(input: VerdictInput): Verdict {
     if (outcome === 'pending') return 'waiting'
     // `finished` means the job completed, not that the container survived it:
     // a container that exits or stays unhealthy right after is still a broken
-    // deploy. Give the listing the grace window to catch up first.
+    // deploy.
     if (state === 'running' && !isUnhealthy(containerStatus)) return 'succeeded'
-    if (elapsedMs < CONVERGENCE_GRACE_MS) return 'waiting'
-    return 'failed'
+
+    // The window runs from `finished`, not from dispatch. Measured from
+    // dispatch it was already spent by the time any real build ended, so the
+    // first poll that caught the new container mid-boot — `starting`, or
+    // unhealthy inside its healthcheck's start period — called a working
+    // deploy failed.
+    if ((input.sinceFinishedMs ?? 0) < POST_DEPLOY_GRACE_MS) return 'waiting'
+
+    // Past the window, the same rule as everywhere else: only positive
+    // evidence counts. A dead container (`exited`, `error`) is a failure; one
+    // still transitioning or still unhealthy is unresolved, so it keeps
+    // waiting and the caller reports a timeout — an unknown outcome, not a
+    // clean failure.
+    if (state === 'stopped' || state === 'error') return 'failed'
+    return 'waiting'
   }
 
   // --- fallback: container status only (Services, Databases) --------------

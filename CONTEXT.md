@@ -57,7 +57,7 @@ The established outcome of a dispatched action — succeeded, failed, or still w
 _Avoid_: Result, state, convergence
 
 **Convergence Window**:
-The period right after an action is dispatched during which a resource that does not yet look healthy is still considered to be catching up, not failing. Inside it, an unhealthy or missing container yields *waiting* rather than a failed **Verdict**; a **Restart** cannot resolve at all inside it, because the container being observed may still be the one about to be replaced.
+The period during which a resource that does not yet look healthy is still considered to be catching up, not failing. Inside it, an unhealthy or missing container yields *waiting* rather than a failed **Verdict**. It runs from the **Deployment** reporting `finished` — not from the dispatch, which is separated from it by the whole build — so what it actually covers is the new container's boot and healthcheck. For Services and Databases, which have no Deployment, it runs from the dispatch, and a **Restart** cannot resolve at all inside it, because the container being observed may still be the one about to be replaced.
 _Avoid_: Grace period, settle time, debounce
 
 **Batch Queue**:

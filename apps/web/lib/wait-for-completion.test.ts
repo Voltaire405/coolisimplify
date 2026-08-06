@@ -8,6 +8,7 @@
 // Now the loop is a module and the scenario runs for real.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { startFakeCoolify, type FakeCoolify } from '../test/fake-coolify'
+import { POST_DEPLOY_GRACE_MS } from './deploy-verdict'
 import {
   POLL_INTERVAL_MS,
   timeoutFor,
@@ -126,6 +127,106 @@ describe('a deploy driven against a fake instance', () => {
       r.pathname.startsWith('/deployments/'),
     )
     expect(queries.length).toBeGreaterThan(0)
+  })
+})
+
+// The mirror image of the bug above, and the one that shipped after it: a
+// deploy that WORKED, reported as failed. What the specs above never exercise
+// is a build slow enough to matter — they hold the container at
+// `running:healthy` for the whole run, so the container is never observed
+// mid-boot. In reality Coolify replaces the container the moment the build
+// ends, and the replacement spends its first seconds `starting` or failing its
+// healthcheck. The grace window used to run from dispatch, so a 90-second
+// build had already spent it, and the first poll after `finished` saw a
+// booting container and called the deploy failed.
+describe('a slow but successful deploy', () => {
+  /**
+   *   t <  90s  build running   → `in_progress`, OLD container still healthy
+   *   t >= 90s  build finished  → `finished`, NEW container coming up
+   *   t >= 102s new container passes its healthcheck
+   */
+  function slowDeploy(bootingStatus: string) {
+    const clock = virtualClock()
+    return {
+      clock,
+      deps: {
+        listResources: async (): Promise<ListedResource[]> => {
+          const t = clock.now()
+          const status =
+            t < 90_000
+              ? 'running:healthy'
+              : t < 102_000
+                ? bootingStatus
+                : 'running:healthy'
+          return [{ uuid: APP_UUID, status }]
+        },
+        getDeployment: async () => ({
+          status: clock.now() < 90_000 ? 'in_progress' : 'finished',
+        }),
+        ...clock,
+      },
+    }
+  }
+
+  const deploy = (bootingStatus: string) => {
+    const { clock, deps } = slowDeploy(bootingStatus)
+    return {
+      clock,
+      outcome: waitForCompletion(
+        {
+          resourceUuid: APP_UUID,
+          resourceType: 'application',
+          action: 'deploy',
+          deploymentUuid: DEPLOYMENT_UUID,
+        },
+        deps,
+      ),
+    }
+  }
+
+  it('is not called a failure because the new container is still starting', async () => {
+    await expect(deploy('starting').outcome).resolves.toBe('completed')
+  })
+
+  it('is not called a failure because the healthcheck has not passed yet', async () => {
+    await expect(deploy('running:unhealthy').outcome).resolves.toBe('completed')
+  })
+
+  it('still fails a build that finished onto a container that then died', async () => {
+    // The window must not swallow a real failure: it delays the verdict, it
+    // does not waive it. A container that exits after the build is the
+    // crash-on-boot case (bad migration, port taken) — a broken deploy.
+    const clock = virtualClock()
+    const outcome = await waitForCompletion(
+      {
+        resourceUuid: APP_UUID,
+        resourceType: 'application',
+        action: 'deploy',
+        deploymentUuid: DEPLOYMENT_UUID,
+      },
+      {
+        listResources: async () => [
+          {
+            uuid: APP_UUID,
+            status: clock.now() < 90_000 ? 'running:healthy' : 'exited (1)',
+          },
+        ],
+        getDeployment: async () => ({
+          status: clock.now() < 90_000 ? 'in_progress' : 'finished',
+        }),
+        ...clock,
+      },
+    )
+    expect(outcome).toBe('failed')
+  })
+
+  it('resolves as soon as the container is up, without waiting out the window', async () => {
+    // The window bounds how long a *failure* may take to establish; positive
+    // evidence still resolves immediately, so a healthy container at t=102s
+    // ends the poll there rather than at finished+60s.
+    const { clock, outcome } = deploy('starting')
+    await outcome
+    expect(clock.now()).toBeLessThan(90_000 + POST_DEPLOY_GRACE_MS)
   })
 })
 

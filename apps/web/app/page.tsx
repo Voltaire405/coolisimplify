@@ -13,7 +13,7 @@ import {
   useClient,
   isResourceActive,
 } from '@/hooks/use-coolify'
-import { judgeAction, timeoutMessage } from '@/lib/deploy-verdict'
+import { timeoutMessage } from '@/lib/deploy-verdict'
 import {
   waitForCompletion as waitForCompletionOf,
   type CompletionOutcome,
@@ -85,10 +85,10 @@ import {
   type TreeNode,
 } from '@/lib/tree'
 
-// How long an action may stay unresolved before we stop waiting. A deploy runs
-// a full build pipeline, so it gets the same budget the batch queue uses.
-const PENDING_TIMEOUT_MS = 120_000
-const DEPLOY_TIMEOUT_MS = 5 * 60_000
+// How long an action may stay unresolved is no longer decided here: it is
+// `timeoutFor` in lib/wait-for-completion.ts, alongside the loop that enforces
+// it. This file kept its own pair of constants for the resolver effect that
+// used to duplicate that loop.
 
 interface Toast {
   id: string
@@ -188,52 +188,26 @@ function DashboardPage() {
     [refetchApplications, refetchServices, refetchDatabases],
   )
 
-  // Unified tracker of in-flight actions. The flag persists until the
-  // resource's real status matches the expected state, the request fails,
-  // or a hard timeout elapses (safety net). Both single and batch actions
-  // register here so the row pill stays visible across the full lifecycle.
-  type PendingAction = {
-    type: ResourceType
-    action: RowAction
-    startedAt: number
-    /** Deployment handle returned by start/restart, when Coolify issued one. */
-    deploymentUuid?: string
-    /** Latest `status` read from that deployment; the authoritative verdict. */
-    deploymentStatus?: string
-  }
-  const [pending, setPending] = useState<Map<string, PendingAction>>(
+  // Which single actions are in flight, and what each one is doing — the row
+  // pill reads it and the busy guard rejects a second click on the same
+  // resource. Nothing more lives here: the outcome of an action is established
+  // by `waitForCompletion`, which owns the polling, the evidence and the
+  // timeout. This map used to carry the deployment handle, its last known
+  // status and the timestamps to judge them by, because a resolver effect
+  // re-derived the verdict here from a second copy of the rule (see ADR-0008).
+  const [pending, setPending] = useState<Map<string, BatchAction>>(
     () => new Map(),
   )
 
-  const startPending = useCallback(
-    (uuid: string, type: ResourceType, action: RowAction) => {
-      setPending((prev) => {
-        const next = new Map(prev)
-        next.set(uuid, { type, action, startedAt: Date.now() })
-        return next
-      })
-    },
-    [],
-  )
+  // Redeploy-needed markers (ADR-0005): uuids of Applications whose config was
+  // edited but not yet applied. Client-derived, not persisted — cleared by
+  // `settleAction` when a redeploy is confirmed to have converged. Declared
+  // here, above that callback, so it is not read before it exists.
+  const [redeployNeeded, setRedeployNeeded] = useState<Set<string>>(new Set())
 
-  /** Records what the poller learns about a pending action's deployment. */
-  const patchPending = useCallback(
-    (uuid: string, patch: Partial<PendingAction>) => {
-      setPending((prev) => {
-        const current = prev.get(uuid)
-        if (!current) return prev
-        const merged = { ...current, ...patch }
-        if (
-          merged.deploymentUuid === current.deploymentUuid &&
-          merged.deploymentStatus === current.deploymentStatus
-        ) {
-          return prev
-        }
-        return new Map(prev).set(uuid, merged)
-      })
-    },
-    [],
-  )
+  const startPending = useCallback((uuid: string, action: BatchAction) => {
+    setPending((prev) => new Map(prev).set(uuid, action))
+  }, [])
 
   const clearPending = useCallback((uuid: string) => {
     setPending((prev) => {
@@ -249,7 +223,7 @@ function DashboardPage() {
     [pending],
   )
   const busyAction = useCallback(
-    (uuid: string): RowAction | undefined => pending.get(uuid)?.action,
+    (uuid: string): RowAction | undefined => pending.get(uuid),
     [pending],
   )
 
@@ -278,14 +252,63 @@ function DashboardPage() {
     clientRef.current = client
   }, [client])
 
+  // An action resolves minutes after the click, so anything read at that point
+  // must come from a ref: the closure that dispatched it holds a listing from
+  // before the deploy even started.
+  const applicationsRef = useRef(applications)
+  useEffect(() => {
+    applicationsRef.current = applications
+  }, [applications])
+
+  /**
+   * Applies a finished action's outcome, whichever path ran it: releases the
+   * busy flag and, for a converged application redeploy, drops the
+   * Redeploy-needed chip (ADR-0005).
+   *
+   * Shared because it used to live in the single-action resolver effect, which
+   * the batch queue never reached — so a redeploy run from the queue left both
+   * the pill and the chip standing after it succeeded.
+   */
+  const settleAction = useCallback(
+    (
+      item: {
+        resourceUuid: string
+        resourceType: ResourceType
+        action: BatchAction
+      },
+      outcome: CompletionOutcome,
+    ) => {
+      clearPending(item.resourceUuid)
+      // Only a converged redeploy clears the chip. After a failure — or a
+      // timeout, which establishes nothing — it deliberately survives: the
+      // config was saved but not demonstrably applied.
+      if (outcome !== 'completed') return
+      if (item.resourceType !== 'application') return
+      if (item.action !== 'restart' && item.action !== 'deploy') return
+      // A converging deploy clears the marker for all apps; a converging
+      // restart only for dockerimage apps (ADR-0005).
+      const buildPack = applicationsRef.current.find(
+        (a) => a.uuid === item.resourceUuid,
+      )?.build_pack
+      if (!redeployClearedBy(buildPack, item.action)) return
+      setRedeployNeeded((prev) => {
+        if (!prev.has(item.resourceUuid)) return prev
+        const next = new Set(prev)
+        next.delete(item.resourceUuid)
+        return next
+      })
+    },
+    [clearPending],
+  )
+
   const waitForCompletion = useCallback(
-    (item: {
+    async (item: {
       resourceUuid: string
       resourceType: ResourceType
       action: RowAction
       deploymentUuid?: string
-    }): Promise<CompletionOutcome> =>
-      waitForCompletionOf(
+    }): Promise<CompletionOutcome> => {
+      const outcome = await waitForCompletionOf(
         {
           ...item,
           action: item.action as BatchAction,
@@ -302,8 +325,14 @@ function DashboardPage() {
               ? clientRef.current.getDeployment(uuid)
               : Promise.reject(new Error('No Coolify client configured')),
         },
-      ),
-    [],
+      )
+      settleAction(
+        { ...item, action: item.action as BatchAction },
+        outcome,
+      )
+      return outcome
+    },
+    [settleAction],
   )
 
   // `addToast` is declared further down; a ref lets the queue callbacks reach
@@ -342,11 +371,6 @@ function DashboardPage() {
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [toasts, setToasts] = useState<Toast[]>([])
-
-  // Redeploy-needed markers (ADR-0005): uuids of Applications whose config was
-  // edited but not yet applied. Client-derived, not persisted — cleared when a
-  // converging action clears it (see the pending resolver below).
-  const [redeployNeeded, setRedeployNeeded] = useState<Set<string>>(new Set())
 
   // Sidebar navigation. The selected node lives in the URL (?node=…) so
   // back/forward and deep links work; the expanded-project set is UI noise
@@ -697,7 +721,8 @@ function DashboardPage() {
         )
         return
       }
-      startPending(uuid, type, action)
+      startPending(uuid, action)
+      let deploymentUuid: string | undefined
       try {
         if (type === 'application') {
           if (action === 'stop') await client.stopApplication(uuid)
@@ -710,9 +735,7 @@ function DashboardPage() {
               action === 'restart'
                 ? await client.restartApplication(uuid)
                 : await client.startApplication(uuid)
-            if (res.deployment_uuid) {
-              patchPending(uuid, { deploymentUuid: res.deployment_uuid })
-            }
+            deploymentUuid = res.deployment_uuid
           }
         } else if (type === 'service') {
           if (action === 'start') await client.startService(uuid)
@@ -729,7 +752,7 @@ function DashboardPage() {
           else await client.deleteDatabase(uuid, deleteOpts)
         }
         // Deliberately "queued", not "done": all the API has told us is that it
-        // accepted the request. The verdict arrives from the resolver below.
+        // accepted the request. The verdict comes from the wait below.
         addToast(
           `${action.charAt(0).toUpperCase() + action.slice(1)} ${type} queued`,
           'info',
@@ -738,12 +761,50 @@ function DashboardPage() {
         addToast(err instanceof Error ? err.message : 'Action failed', 'error')
         // API failed: nothing to wait for; release the flag immediately.
         clearPending(uuid)
+        refetchByType(type)
+        return
       }
-      // On success we leave `pending` in place — the resolver effect clears
-      // it once the action's real outcome is established.
+      refetchByType(type)
+
+      // The same waiter the batch queue uses. Both paths used to poll for
+      // themselves — the queue through this module, single actions through a
+      // resolver effect holding a second copy of the rule — and every defect in
+      // that rule landed in both (ADR-0008). Now there is one implementation,
+      // and it is the one with tests.
+      // Clearing the pill and the Redeploy-needed chip happens inside the
+      // waiter, so this path and the batch queue settle identically.
+      const outcome = await waitForCompletion({
+        resourceUuid: uuid,
+        resourceType: type,
+        action,
+        deploymentUuid,
+      })
+
+      if (outcome !== 'completed') {
+        // `failed` is Coolify's verdict on the deployment; `timeout` is us
+        // giving up, which establishes nothing — keep them distinguishable.
+        addToast(
+          `${findName(uuid)}: ${
+            outcome === 'failed' ? `${action} failed` : timeoutMessage(action)
+          }`,
+          'error',
+        )
+      }
       refetchByType(type)
     },
-    [client, addToast, refetchByType, isResourceBusy, startPending, clearPending, patchPending, applications, services, databases],
+    [
+      client,
+      addToast,
+      refetchByType,
+      isResourceBusy,
+      startPending,
+      clearPending,
+      waitForCompletion,
+      findName,
+      applications,
+      services,
+      databases,
+    ],
   )
 
   const handleAction = useCallback(
@@ -799,7 +860,7 @@ function DashboardPage() {
         action,
         deleteOptions,
       )
-      if (enqueued) startPending(uuid, type, action)
+      if (enqueued) startPending(uuid, action)
     },
     [queue, findName, isResourceBusy, startPending, addToast],
   )
@@ -974,7 +1035,7 @@ function DashboardPage() {
           'delete',
           opts,
         )
-        if (enqueued) startPending(resource.uuid, resource.type, 'delete')
+        if (enqueued) startPending(resource.uuid, 'delete')
         else skipped += 1
       }
       if (skipped > 0) {
@@ -1225,123 +1286,13 @@ function DashboardPage() {
     [addToast, refetchAllEnvironments, refetchByType],
   )
 
-  // Resolver: establishes the real outcome of a pending action and clears the
-  // flag, reporting a failure as a failure. Also enforces a hard safety
-  // timeout so a pill cannot get permanently stuck if nothing ever converges.
-  //
-  // An app deploy runs a full build pipeline, so it gets the same long budget
-  // the batch queue uses — the old 120s ceiling abandoned slow-but-fine
-  // deploys before they could report anything.
-  useEffect(() => {
-    if (pending.size === 0) return
-    const now = Date.now()
-    const toClear: string[] = []
-    const toClearRedeploy: string[] = []
-    const failures: { uuid: string; action: RowAction; reason: string }[] = []
-    for (const [uuid, p] of pending) {
-      const age = now - p.startedAt
-      const isDeployLike =
-        p.type === 'application' &&
-        (p.action === 'deploy' || p.action === 'restart' || p.action === 'start')
-      if (age > (isDeployLike ? DEPLOY_TIMEOUT_MS : PENDING_TIMEOUT_MS)) {
-        toClear.push(uuid)
-        // Giving up is not evidence of success *or* failure; say so rather
-        // than silently dropping the pill as if all were well.
-        failures.push({ uuid, action: p.action, reason: timeoutMessage(p.action) })
-        continue
-      }
-      const list =
-        p.type === 'application'
-          ? applications
-          : p.type === 'service'
-            ? services
-            : databases
-      const resource = list.find((r) => r.uuid === uuid) as
-        | { status?: string; build_pack?: string }
-        | undefined
-      const verdict = judgeAction({
-        action: p.action as 'start' | 'stop' | 'restart' | 'deploy' | 'delete',
-        resourcePresent: !!resource,
-        containerStatus: resource?.status,
-        deploymentStatus: p.deploymentStatus,
-        elapsedMs: age,
-      })
-      if (verdict === 'waiting') continue
-      toClear.push(uuid)
-      if (verdict === 'failed') {
-        failures.push({ uuid, action: p.action, reason: `${p.action} failed` })
-        // The Redeploy-needed chip deliberately survives: the config was saved
-        // but demonstrably not applied (ADR-0005).
-        continue
-      }
-      // A converging deploy clears the marker for all apps; a converging
-      // restart only for dockerimage apps (ADR-0005).
-      if (
-        (p.action === 'restart' || p.action === 'deploy') &&
-        redeployClearedBy(resource?.build_pack, p.action)
-      ) {
-        toClearRedeploy.push(uuid)
-      }
-    }
-    if (toClear.length === 0) return
-    // Cascading update is bounded: each entry resolves at most once per
-    // data refetch, the resolver only fires while pending.size > 0, and
-    // we early-return when nothing needs clearing.
-    /* eslint-disable react-hooks/set-state-in-effect */
-    for (const f of failures) {
-      addToast(`${findName(f.uuid)}: ${f.reason}`, 'error')
-    }
-    setPending((prev) => {
-      const next = new Map(prev)
-      for (const uuid of toClear) next.delete(uuid)
-      return next
-    })
-    if (toClearRedeploy.length > 0) {
-      setRedeployNeeded((prev) => {
-        const next = new Set(prev)
-        for (const uuid of toClearRedeploy) next.delete(uuid)
-        return next
-      })
-    }
-    /* eslint-enable react-hooks/set-state-in-effect */
-  }, [pending, applications, services, databases, addToast, findName])
-
-  // While any action is pending, poll the relevant lists every few seconds
-  // so the pill clears soon after the container actually transitions.
-  useEffect(() => {
-    if (pending.size === 0) return
-    const types = new Set<ResourceType>()
-    for (const p of pending.values()) types.add(p.type)
-    // Deployment handles to follow. The container status cannot distinguish a
-    // failed build from a successful one, so for anything that queued a
-    // deployment this is the signal that actually decides the outcome.
-    const deployments: { uuid: string; deploymentUuid: string }[] = []
-    for (const [uuid, p] of pending) {
-      if (p.deploymentUuid) deployments.push({ uuid, deploymentUuid: p.deploymentUuid })
-    }
-    const tick = () => {
-      for (const t of types) {
-        if (t === 'application') void refetchApplications()
-        else if (t === 'service') void refetchServices()
-        else void refetchDatabases()
-      }
-      const c = clientRef.current
-      if (!c) return
-      for (const d of deployments) {
-        void c
-          .getDeployment(d.deploymentUuid)
-          .then((deployment) =>
-            patchPending(d.uuid, { deploymentStatus: deployment.status }),
-          )
-          // A failed lookup is not a failed deploy: leave the last known
-          // status alone and retry on the next tick.
-          .catch(() => {})
-      }
-    }
-    tick()
-    const id = window.setInterval(tick, 3000)
-    return () => window.clearInterval(id)
-  }, [pending, refetchApplications, refetchServices, refetchDatabases, patchPending])
+  // There is no resolver effect here any more, and no deployment poller. Both
+  // were this page's own re-implementation of `waitForCompletion`: one polled
+  // the listing and the deployment record, the other re-derived the verdict
+  // from what it found. `executeAction` now awaits the shared waiter, which
+  // does its own polling — including the periodic listing refetch that kept
+  // the row pill honest, since re-reading the listing is how it observes the
+  // container at all.
 
   const allLoading = projectsLoading || appsLoading || servicesLoading || dbsLoading
 

@@ -1,4 +1,8 @@
-import { judgeAction, type VerdictInput } from './deploy-verdict'
+import {
+  isDeploymentFinished,
+  judgeAction,
+  type VerdictInput,
+} from './deploy-verdict'
 import type { ResourceType } from './types'
 
 /**
@@ -70,6 +74,9 @@ export async function waitForCompletion(
 
   const startedAt = now()
   const deadline = startedAt + timeoutFor(item)
+  // When the build reported `finished`. The container gets its grace window
+  // from here, because that is when the new container starts existing.
+  let finishedAt: number | undefined
 
   while (now() < deadline) {
     let list: ListedResource[] | undefined
@@ -87,6 +94,12 @@ export async function waitForCompletion(
     if (item.deploymentUuid && deps.getDeployment) {
       try {
         deploymentStatus = (await deps.getDeployment(item.deploymentUuid)).status
+        // Stamp the end of the build once. `finished` is terminal, so a later
+        // poll can only re-read the same value — but re-stamping would slide
+        // the window forward and it would never close.
+        if (finishedAt == null && isDeploymentFinished(deploymentStatus)) {
+          finishedAt = now()
+        }
       } catch {
         // Transient: fall through and let the next poll retry rather than
         // inventing a verdict from a failed lookup.
@@ -101,6 +114,7 @@ export async function waitForCompletion(
         containerStatus: resource?.status,
         deploymentStatus,
         elapsedMs: now() - startedAt,
+        sinceFinishedMs: finishedAt == null ? 0 : now() - finishedAt,
       })
       if (verdict === 'succeeded') return 'completed'
       if (verdict === 'failed') return 'failed'

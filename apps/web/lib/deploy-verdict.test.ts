@@ -17,7 +17,9 @@ import { componentSchema } from '../test/coolify-spec'
 import { CoolifyClient } from './coolify-client'
 import {
   CONVERGENCE_GRACE_MS,
+  POST_DEPLOY_GRACE_MS,
   classifyDeploymentStatus,
+  isDeploymentFinished,
   isTerminalOutcome,
   isUnhealthy,
   judgeAction,
@@ -52,6 +54,17 @@ describe('classifyDeploymentStatus', () => {
     expect(isTerminalOutcome('cancelled')).toBe(true)
     expect(isTerminalOutcome('pending')).toBe(false)
   })
+
+  // The stamp that starts the container's grace window. It must not fire on a
+  // failed or cancelled deployment: those are verdicts already, with no
+  // container to wait for.
+  it('recognises only a completed build as `finished`', () => {
+    expect(isDeploymentFinished('finished')).toBe(true)
+    for (const s of ['in_progress', 'queued', 'failed', 'cancelled-by-user', '']) {
+      expect(isDeploymentFinished(s)).toBe(false)
+    }
+    expect(isDeploymentFinished(undefined)).toBe(false)
+  })
 })
 
 describe('judgeAction, holding a deployment handle', () => {
@@ -82,31 +95,55 @@ describe('judgeAction, holding a deployment handle', () => {
   })
 
   // `finished` means the job completed, not that the container survived it: a
-  // crash-loop is a failed deploy, not a done one.
-  it('fails a finished deployment whose container died right after', () => {
-    expect(
-      judge({ deploymentStatus: 'finished', containerStatus: 'exited (1)' }),
-    ).toBe('failed')
-  })
-
-  it('gives the listing its convergence grace window before holding the container against it', () => {
+  // container that exits once the build ends is a failed deploy, not a done one.
+  it('fails a finished deployment whose container died once the window closed', () => {
     expect(
       judge({
         deploymentStatus: 'finished',
         containerStatus: 'exited (1)',
-        elapsedMs: CONVERGENCE_GRACE_MS - 1,
+        sinceFinishedMs: POST_DEPLOY_GRACE_MS,
+      }),
+    ).toBe('failed')
+  })
+
+  it('gives the new container its window before holding its state against it', () => {
+    expect(
+      judge({
+        deploymentStatus: 'finished',
+        containerStatus: 'exited (1)',
+        sinceFinishedMs: POST_DEPLOY_GRACE_MS - 1,
       }),
     ).toBe('waiting')
   })
 
-  it('does not call a failing healthcheck a working deploy', () => {
-    expect(isUnhealthy('running (unhealthy)')).toBe(true)
+  // The bug this replaced: the window used to run from dispatch, so any build
+  // slower than 8s had already spent it by the time it ended — and the first
+  // poll that caught the new container mid-boot called a working deploy failed.
+  it('measures that window from `finished`, not from dispatch', () => {
     expect(
       judge({
         deploymentStatus: 'finished',
-        containerStatus: 'running (unhealthy)',
+        containerStatus: 'starting',
+        elapsedMs: 90_000, // a normal build: long, and irrelevant here
+        sinceFinishedMs: 3_000, // the container is three seconds old
       }),
-    ).toBe('failed')
+    ).toBe('waiting')
+  })
+
+  it('never calls a failing healthcheck a working deploy', () => {
+    expect(isUnhealthy('running (unhealthy)')).toBe(true)
+    // Inside the window it is still booting; past it the deploy is unresolved,
+    // not proven broken — an unhealthy container is still a running one, so
+    // the caller times out rather than claiming a failure it cannot show.
+    for (const sinceFinishedMs of [0, POST_DEPLOY_GRACE_MS * 10]) {
+      expect(
+        judge({
+          deploymentStatus: 'finished',
+          containerStatus: 'running (unhealthy)',
+          sinceFinishedMs,
+        }),
+      ).toBe('waiting')
+    }
   })
 
   // `running:unknown` is a container with no healthcheck defined — roughly half
