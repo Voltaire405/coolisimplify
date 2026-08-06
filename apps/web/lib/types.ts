@@ -234,7 +234,8 @@ export interface EnvironmentVariable {
   is_shown_once?: boolean
   key: string
   value: string
-  real_value?: string
+  /** Null for `is_shown_once` secrets: stored once and never exposed again. */
+  real_value?: string | null
   comment?: string | null
   version?: string
   created_at?: string
