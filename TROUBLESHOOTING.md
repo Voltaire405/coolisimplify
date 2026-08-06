@@ -16,11 +16,11 @@
 - Credenciales de BD por motor según su allowlist (p. ej. `keydb_password`, `dragonfly_password`, mongodb no acepta password).
 - Sin `as unknown as` en los casts: el payload se construye con el tipo create concreto, dejando que el compilador valide las claves.
 
-**Verificación**: `pnpm check:clone-payload`. Recorre los quince flujos de clonado (app vía GitHub App / Dockerfile / Docker Compose, servicio y los ocho motores de BD, incluida una tanda de motores mixtos), construye el payload desde un detalle sintético con **todos** los campos del schema poblados y lo valida contra el schema de request de `coolify-openapi-v4.x.yaml` más las reglas extra del controlador. No toca ninguna instancia: es determinista y corre en menos de un segundo.
+**Verificación**: `pnpm test`. Recorre los quince flujos de clonado (app vía GitHub App / Dockerfile / Docker Compose, servicio y los ocho motores de BD, incluida una tanda de motores mixtos), construye el payload desde un detalle sintético con **todos** los campos del schema poblados y lo valida contra el schema de request de `coolify-openapi-v4.x.yaml` más las reglas extra del controlador. No toca ninguna instancia: es determinista y corre en menos de un segundo.
 
-Fuentes: `scripts/check-clone-payload.mjs` y `scripts/coolify-spec.mjs`. Requiere Node 22+ por `--experimental-strip-types` (importa el `clone.ts` real, así que valida el código de producción, no una copia).
+Fuentes: `apps/web/lib/clone-payload.test.ts` y `apps/web/test/coolify-spec.ts`. Importa el `clone.ts` real, así que valida el código de producción, no una copia.
 
-Cuando aparezca un 422 nuevo, el orden que funciona es: reproducirlo en este script antes de tocar `clone.ts`, y no darlo por arreglado hasta que el script pase. Un fix verificado solo contra la instancia real es difícil de distinguir de un fix que ni siquiera llegó al bundle.
+Cuando aparezca un 422 nuevo, el orden que funciona es: reproducirlo en ese spec antes de tocar `clone.ts`, y no darlo por arreglado hasta que el spec pase. Un fix verificado solo contra la instancia real es difícil de distinguir de un fix que ni siquiera llegó al bundle.
 
 ### El allowlist no es uno solo: es uno por endpoint
 
@@ -28,7 +28,7 @@ Cuando aparezca un 422 nuevo, el orden que funciona es: reproducirlo en este scr
 
 ### La fuente de verdad es el OpenAPI del repo, no el controlador PHP
 
-`coolify-openapi-v4.x.yaml` es una copia de la fuente oficial de Coolify [`v4.x/openapi.yaml`](https://github.com/coollabsio/coolify/blob/v4.x/openapi.yaml) y describe la versión contra la que corre este dashboard. Un `ApplicationsController.php` descargado de `main` puede listar campos que esa versión **no** acepta todavía. Validar contra el PHP da falsos negativos; validar contra el spec versionado es lo correcto — con una salvedad: el spec versionado también puede **ir por detrás** del controlador real de la versión que corres. `custom_network_aliases` es el caso inverso: el controlador v4.x lo acepta en `$allowedFields` del create y del update, pero el `coolify-openapi-v4.x.yaml` versionado solo lo expone en el componente GET `Application`, no en el schema de request del create. Por eso `scripts/check-clone-payload.mjs` mantiene `EXTRA_ALLOWED`/`EXTRA_PROPS`: campos que el controlador real acepta y que el spec aún no documenta, verificados contra `$allowedFields` del `ApplicationsController.php` de v4.x.
+`coolify-openapi-v4.x.yaml` es una copia de la fuente oficial de Coolify [`v4.x/openapi.yaml`](https://github.com/coollabsio/coolify/blob/v4.x/openapi.yaml) y describe la versión contra la que corre este dashboard. Un `ApplicationsController.php` descargado de `main` puede listar campos que esa versión **no** acepta todavía. Validar contra el PHP da falsos negativos; validar contra el spec versionado es lo correcto — con una salvedad: el spec versionado también puede **ir por detrás** del controlador real de la versión que corres. `custom_network_aliases` es el caso inverso: el controlador v4.x lo acepta en `$allowedFields` del create y del update, pero el `coolify-openapi-v4.x.yaml` versionado solo lo expone en el componente GET `Application`, no en el schema de request del create. Por eso `apps/web/lib/clone-payload.test.ts` mantiene `EXTRA_ALLOWED`/`EXTRA_PROPS`: campos que el controlador real acepta y que el spec aún no documenta, verificados contra `$allowedFields` del `ApplicationsController.php` de v4.x.
 
 ### Campos que no round-trippean entre GET y CREATE
 

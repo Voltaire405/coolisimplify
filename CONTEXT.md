@@ -56,6 +56,10 @@ _Avoid_: Build, release, job
 The established outcome of a dispatched action — succeeded, failed, or still waiting. For an Application it comes from the **Deployment**'s status (`finished`/`failed`/`cancelled-by-user`); for Services and Databases, which have no Deployment, from the container status. Distinct from *queued*, which only means the API accepted the request. Timing out is not a verdict.
 _Avoid_: Result, state, convergence
 
+**Convergence Window**:
+The period right after an action is dispatched during which a resource that does not yet look healthy is still considered to be catching up, not failing. Inside it, an unhealthy or missing container yields *waiting* rather than a failed **Verdict**; a **Restart** cannot resolve at all inside it, because the container being observed may still be the one about to be replaced.
+_Avoid_: Grace period, settle time, debounce
+
 **Batch Queue**:
 The ordered set of selected Resources awaiting a batch action; selection order is execution order. It persists across Sidebar navigation and is shown as removable chips in the floating bar.
 _Avoid_: Bulk selection, multi-select

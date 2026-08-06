@@ -6,7 +6,7 @@ We deliberately did **not** use Coolify's `PATCH /{type}/{uuid}/envs/bulk`: its 
 
 Two consequences of the real API shape (verified against the synced `coolify-openapi-v4.x.yaml` and the live v4.x source):
 
-1. **There is no `PATCH /{type}/{uuid}/envs/{env_uuid}`.** The item path only supports DELETE. An earlier draft of this design assumed a per-`env_uuid` PATCH; that endpoint does not exist, so the client PATCHes the collection path keyed by `key` instead. `scripts/check-envs.mjs` asserts the item path exposes only `delete`, so a future spec sync that adds a per-env PATCH will fail loudly and prompt a revisit.
+1. **There is no `PATCH /{type}/{uuid}/envs/{env_uuid}`.** The item path only supports DELETE. An earlier draft of this design assumed a per-`env_uuid` PATCH; that endpoint does not exist, so the client PATCHes the collection path keyed by `key` instead. `apps/web/lib/envs.test.ts` asserts the item path exposes only `delete`, so a future spec sync that adds a per-env PATCH will fail loudly and prompt a revisit.
 2. **Renaming a key is delete-then-create.** Because PATCH is routed by the (new) key, a pure PATCH cannot rename. The editor therefore deletes the old row and creates the new key in one save operation. If the create fails after the delete, the row is gone; the inline error says so.
 
 The three flags `is_literal`, `is_multiline`, and `is_preview` are editable; the rest (`is_runtime`, `is_buildtime`, `is_shared`, `is_shown_once`) are displayed as read-only badges. `is_preview` is not sent for databases — the database env endpoints accept only `is_literal`, `is_multiline`, and `is_shown_once`.

@@ -71,5 +71,5 @@ h.restore()
   `transformBody` seam exists for exactly this mismatch.
 - **Prism doesn't 422 on unknown fields** (`--errors=false`): to catch
   unknown-field leaks, pair the mock with the repo's
-  `scripts/check-clone-payload.mjs` (validates against the create schema plus
+  `apps/web/lib/clone-payload.test.ts` (validates against the create schema plus
   the controller's `$allowedFields` allowlist).

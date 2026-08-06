@@ -32,7 +32,7 @@ See `CONTEXT.md` for the domain vocabulary (Resource, Project, Environment, Serv
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) >= 20 (>= 22 to run the `check:*` verification scripts, which use `--experimental-strip-types`)
+- [Node.js](https://nodejs.org/) >= 20
 - [pnpm](https://pnpm.io/) >= 9
 - A reachable Coolify v4.x instance and API token (or the [Prism](https://stoplight.io/open-source/prism) mock server below, for UI-only work)
 
@@ -78,11 +78,11 @@ apps/
     components/             # Sidebar, Drawer, Cards, Palette, Batch Queue, Clone/Confirm dialogs, ...
     hooks/                  # use-coolify (data + mutations), use-settings (localStorage config)
     lib/                    # coolify-client, clone (allowlist payload builder), envs, tree, resource-state, types
+    test/                   # Test helpers: fake Coolify instance, OpenAPI schema extractor
 packages/
   ui/                        # Shared shadcn/ui components
   eslint-config/             # Shared ESLint config
   typescript-config/         # Shared tsconfig base
-scripts/                     # check-clone-payload, check-clone-names, check-envs, coolify-spec
 docs/
   adr/                       # Architecture decision records
   agents/                    # Issue tracker, triage labels, domain-doc conventions
@@ -101,11 +101,11 @@ TROUBLESHOOTING.md           # Known Coolify API quirks and how this codebase wo
 | `pnpm lint`                 | Lint all apps                                                                    |
 | `pnpm format`               | Format with Prettier                                                             |
 | `pnpm typecheck`            | TypeScript type checking                                                         |
-| `pnpm check:clone-payload`  | Validate every clone flow's payload against the OpenAPI request schema, offline  |
-| `pnpm check:clone-names`    | Validate clone name resolution and destination filtering, offline                |
-| `pnpm check:envs`           | Validate the env var editor's URL mapping and request payloads, offline          |
+| `pnpm test`                 | Run the Vitest suite                                                             |
 
-The `check:*` scripts import the real `apps/web/lib/*.ts` source (via `node --experimental-strip-types`) and validate it against `coolify-openapi-v4.x.yaml` plus documented controller-only rules — no live instance required, and each runs in under a second. See `TROUBLESHOOTING.md` for the failure modes they exist to catch.
+Tests live beside the code they cover (`apps/web/lib/*.test.ts`, `apps/web/hooks/*.test.ts`) and need no live instance: HTTP is answered by a fake Coolify on an ephemeral port (`apps/web/test/fake-coolify.ts`), and clone/env/log payloads are validated against `coolify-openapi-v4.x.yaml` plus documented controller-only rules. The whole suite runs in a couple of seconds. See `TROUBLESHOOTING.md` for the failure modes it exists to catch, and `docs/adr/0007-vitest-replaces-the-check-scripts.md` for why it is shaped this way.
+
+Run a single file with `pnpm --filter web test lib/deploy-verdict.test.ts`, or watch with `pnpm --filter web test:watch`.
 
 ## Documentation
 

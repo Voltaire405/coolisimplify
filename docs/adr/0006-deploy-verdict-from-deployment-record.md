@@ -6,7 +6,9 @@ That cannot work, and it failed in the most damaging direction: **it reported br
 
 The verdict now comes from the deployment itself. `start`/`restart` return a `deployment_uuid` (already present in `StartResponse`/`RestartResponse`, previously discarded); it is retained and `GET /deployments/{uuid}` is polled until its `status` is terminal — `finished`, `failed` or `cancelled-by-user`. `queued` and `in_progress` are not outcomes and keep the action pending, as does any unrecognised future value: an unknown status is not evidence of success.
 
-The decision lives in `lib/deploy-verdict.ts` as a pure `judgeAction`, deliberately **not** inline in the page. The rule previously existed in two hand-synchronised copies inside `app/page.tsx` — a `useCallback` for the batch queue and a `useEffect` for single actions — neither reachable from a test, which is why the defect survived. `scripts/check-deploy-verdict.mjs` now drives both paths against a fake instance and fails if the page stops using the shared judge.
+The decision lives in `lib/deploy-verdict.ts` as a pure `judgeAction`, deliberately **not** inline in the page. The rule previously existed in two hand-synchronised copies inside `app/page.tsx` — a `useCallback` for the batch queue and a `useEffect` for single actions — neither reachable from a test, which is why the defect survived.
+
+The poll loop that *invokes* the judge was extracted afterwards, for the same reason (see ADR-0007). It now lives in `lib/wait-for-completion.ts` with its listing, deployment lookup and clock as parameters, so `lib/wait-for-completion.test.ts` drives a failing and a succeeding deploy end to end against a fake instance. Until then the loop was reachable only by rendering the page, and the check had to settle for asserting that `page.tsx` mentioned `judgeAction` — a grep standing in for a test.
 
 Three narrower rules follow from the same principle — that only positive evidence counts as success:
 
