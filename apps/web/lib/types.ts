@@ -26,7 +26,13 @@ export interface Application {
   git_branch?: string
   git_commit_sha?: string
   git_full_url?: string | null
-  build_pack?: 'nixpacks' | 'railpack' | 'static' | 'dockerfile' | 'dockercompose' | 'dockerimage'
+  build_pack?:
+    | "nixpacks"
+    | "railpack"
+    | "static"
+    | "dockerfile"
+    | "dockercompose"
+    | "dockerimage"
   ports_exposes?: string
   ports_mappings?: string | null
   base_directory?: string
@@ -66,7 +72,7 @@ export interface Application {
   health_check_timeout?: number
   health_check_retries?: number
   health_check_start_period?: number
-  health_check_type?: 'http' | 'cmd'
+  health_check_type?: "http" | "cmd"
   health_check_command?: string | null
   limits_memory?: string
   limits_memory_swap?: string
@@ -83,9 +89,33 @@ export interface Application {
   destination_type?: string
   destination_id?: number
   destination?: Destination
+  /**
+   * Only present on `GET /applications/{uuid}` — the list endpoint does not
+   * return it (verified against coolify-openapi-v4.x.yaml).
+   */
+  settings?: ApplicationSetting
   created_at?: string
   updated_at?: string
   deleted_at?: string | null
+}
+
+/**
+ * Application settings, embedded in the single-application detail response.
+ * `is_preview_deployments_enabled` gates whether the Env Editor shows the
+ * Preview section (see ADR-0008).
+ */
+export interface ApplicationSetting {
+  id?: number
+  is_static?: boolean
+  is_git_submodules_enabled?: boolean
+  is_git_lfs_enabled?: boolean
+  is_auto_deploy_enabled?: boolean
+  is_force_https_enabled?: boolean
+  is_debug_enabled?: boolean
+  is_preview_deployments_enabled?: boolean
+  is_log_drain_enabled?: boolean
+  is_gpu_enabled?: boolean
+  application_id?: number
 }
 
 export interface Service {
@@ -157,7 +187,7 @@ export interface Server {
   ip?: string
   user?: string
   port?: number
-  proxy_type?: 'traefik' | 'caddy' | 'none'
+  proxy_type?: "traefik" | "caddy" | "none"
   settings?: ServerSetting
   created_at?: string
   updated_at?: string
@@ -244,7 +274,7 @@ export interface EnvironmentVariable {
 
 export type Resource = Application | Service | Database
 
-export type ResourceType = 'application' | 'service' | 'database'
+export type ResourceType = "application" | "service" | "database"
 
 export interface DeleteOptions {
   delete_volumes: boolean
@@ -269,7 +299,7 @@ export interface ConflictError {
     domain: string
     resource_name: string
     resource_uuid?: string | null
-    resource_type: 'application' | 'service' | 'instance'
+    resource_type: "application" | "service" | "instance"
     message: string
   }>
 }
@@ -335,14 +365,14 @@ export interface DeleteResponse {
 }
 
 export type DatabaseType =
-  | 'postgresql'
-  | 'mysql'
-  | 'mariadb'
-  | 'redis'
-  | 'keydb'
-  | 'dragonfly'
-  | 'clickhouse'
-  | 'mongodb'
+  | "postgresql"
+  | "mysql"
+  | "mariadb"
+  | "redis"
+  | "keydb"
+  | "dragonfly"
+  | "clickhouse"
+  | "mongodb"
 
 export interface EnvVarCreate {
   key: string
@@ -367,7 +397,12 @@ export interface ApplicationCreateBase {
   name?: string
   description?: string
   domains?: string
-  build_pack?: 'nixpacks' | 'railpack' | 'static' | 'dockerfile' | 'dockercompose'
+  build_pack?:
+    | "nixpacks"
+    | "railpack"
+    | "static"
+    | "dockerfile"
+    | "dockercompose"
   ports_exposes?: string
   ports_mappings?: string
   base_directory?: string

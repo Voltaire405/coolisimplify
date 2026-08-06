@@ -1,6 +1,6 @@
-'use client'
+"use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Eye,
   EyeOff,
@@ -11,16 +11,18 @@ import {
   Search,
   Trash2,
   X,
-} from 'lucide-react'
-import { cn } from '@workspace/ui/lib/utils'
-import type { EnvironmentVariable, ResourceType } from '@/lib/types'
-import type { CoolifyClient } from '@/lib/coolify-client'
+} from "lucide-react"
+import { cn } from "@workspace/ui/lib/utils"
+import type { EnvironmentVariable, ResourceType } from "@/lib/types"
+import type { CoolifyClient } from "@/lib/coolify-client"
 import {
-  envSupportsPreview,
+  envUpdateIncludesPreview,
   envValue,
   filterEnvsByKey,
   isValueReadable,
-} from '@/lib/envs'
+  partitionEnvsByPreview,
+  sortEnvsByKey,
+} from "@/lib/envs"
 
 type Draft = {
   /** null for an unsaved "add" row. */
@@ -32,11 +34,18 @@ type Draft = {
   is_preview: boolean
 }
 
+type SectionName = "Production" | "Preview"
+
+/** The section a variable (or draft) belongs to; a missing flag is production. */
+function sectionOf(isPreview: boolean | undefined): SectionName {
+  return isPreview ? "Preview" : "Production"
+}
+
 function toDraft(env: EnvironmentVariable): Draft {
   return {
     uuid: env.uuid,
     key: env.key,
-    value: isValueReadable(env) ? envValue(env) : '',
+    value: isValueReadable(env) ? envValue(env) : "",
     is_literal: env.is_literal ?? false,
     is_multiline: env.is_multiline ?? false,
     is_preview: env.is_preview ?? false,
@@ -49,7 +58,7 @@ function draftToPayload(d: Draft, type: ResourceType) {
     value: d.value,
     is_literal: d.is_literal,
     is_multiline: d.is_multiline,
-    ...(envSupportsPreview(type) ? { is_preview: d.is_preview } : {}),
+    ...(envUpdateIncludesPreview(type) ? { is_preview: d.is_preview } : {}),
   }
 }
 
@@ -57,6 +66,13 @@ interface EnvironmentVariableEditorProps {
   client: CoolifyClient
   type: ResourceType
   resourceUuid: string
+  /**
+   * Whether the application has preview deployments enabled. Only meaningful
+   * for applications; used to derive the initial collapsed state of the
+   * Preview section (see ADR-0008). When absent, the section derives its
+   * state purely from whether preview variables exist.
+   */
+  previewDeploymentsEnabled?: boolean
   /** Fired on any successful create/update/delete so the page can toast. */
   onChanged?: (message: string) => void
   /** Fired when a save/delete fails, with the message (never the raw error). */
@@ -73,6 +89,7 @@ export function EnvironmentVariableEditor({
   client,
   type,
   resourceUuid,
+  previewDeploymentsEnabled,
   onChanged,
   onError,
 }: EnvironmentVariableEditorProps) {
@@ -86,11 +103,21 @@ export function EnvironmentVariableEditor({
   const [savingKey, setSavingKey] = useState<string | null>(null)
   // Row-scoped error: `{ uuid, message }` where uuid is the env uuid or the
   // reserved '__add__' for the add row. Rendered on the row it belongs to.
-  const [rowError, setRowError] = useState<{ uuid: string; message: string } | null>(null)
+  const [rowError, setRowError] = useState<{
+    uuid: string
+    message: string
+  } | null>(null)
   // List-level masking: every readable value is masked until "Reveal all".
   const [revealed, setRevealed] = useState(false)
   // Key-only search box; narrowed rows are filtered out of the list.
-  const [searchKey, setSearchKey] = useState('')
+  const [searchKey, setSearchKey] = useState("")
+  // Preview section collapse. `previewCollapsedOverride` is null until the
+  // user toggles it manually; the derived state (from the resource flag or the
+  // presence of preview vars) applies otherwise. The override is dropped when
+  // the drawer re-targets another resource.
+  const [previewCollapsedOverride, setPreviewCollapsedOverride] = useState<
+    boolean | null
+  >(null)
 
   const load = useCallback(async () => {
     setLoadError(null)
@@ -98,7 +125,9 @@ export function EnvironmentVariableEditor({
       const result = await client.listEnvsFor(type, resourceUuid)
       setEnvs(result)
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : 'Failed to load variables')
+      setLoadError(
+        err instanceof Error ? err.message : "Failed to load variables"
+      )
     }
   }, [client, type, resourceUuid])
 
@@ -107,37 +136,74 @@ export function EnvironmentVariableEditor({
   }, [load])
 
   // Re-targeting the drawer to another resource must start the Env Editor
-  // fresh: drop the previous resource's search query and reveal state.
+  // fresh: drop the previous resource's search query, reveal state, and any
+  // manual section-collapse override.
   useEffect(() => {
-    setSearchKey('')
+    setSearchKey("")
     setRevealed(false)
+    setPreviewCollapsedOverride(null)
   }, [resourceUuid])
+
+  const { production: productionEnvs, preview: previewEnvs } = useMemo(
+    () => partitionEnvsByPreview(envs ?? []),
+    [envs]
+  )
+  const sortedProduction = useMemo(
+    () => sortEnvsByKey(productionEnvs),
+    [productionEnvs]
+  )
+  const sortedPreview = useMemo(() => sortEnvsByKey(previewEnvs), [previewEnvs])
+
+  const visibleProduction = useMemo(
+    () => filterEnvsByKey(sortedProduction, searchKey),
+    [sortedProduction, searchKey]
+  )
+  const visiblePreview = useMemo(
+    () => filterEnvsByKey(sortedPreview, searchKey),
+    [sortedPreview, searchKey]
+  )
 
   const canAdd = useMemo(() => {
     if (!adding || !addingDraft) return false
-    return validateKey(addingDraft.key, envs ?? [], null) === null
-  }, [adding, addingDraft, envs])
+    // The add row lives in whichever section started it; duplicates are only
+    // checked within that section's list.
+    const section = sectionOf(addingDraft.is_preview)
+    const sectionList = section === "Preview" ? previewEnvs : productionEnvs
+    return validateKey(addingDraft.key, sectionList, null, section) === null
+  }, [adding, addingDraft, previewEnvs, productionEnvs])
 
-  const visibleEnvs = useMemo(
-    () => filterEnvsByKey(envs ?? [], searchKey),
-    [envs, searchKey],
+  const isFiltering = searchKey.trim() !== ""
+
+  // Derive the section's collapsed state from the resource. The section is
+  // open when previews are enabled on the application, or when preview vars
+  // already exist; a manual override wins until the resource changes.
+  const supportsPreviewSection = type === "application"
+  const derivedPreviewCollapsed = useMemo(
+    () =>
+      !supportsPreviewSection ||
+      (!(previewDeploymentsEnabled ?? false) && previewEnvs.length === 0),
+    [supportsPreviewSection, previewDeploymentsEnabled, previewEnvs.length]
   )
-
-  const isFiltering = searchKey.trim() !== ''
+  const previewCollapsed = previewCollapsedOverride ?? derivedPreviewCollapsed
+  // While searching, a Preview section with matches opens itself; clearing the
+  // search returns it to the derived state.
+  const previewOpen =
+    !previewCollapsed || (isFiltering && visiblePreview.length > 0)
 
   function validateKey(
     key: string,
     list: EnvironmentVariable[],
     excludeUuid: string | null,
+    section: SectionName
   ): string | null {
     const trimmed = key.trim()
-    if (!trimmed) return 'Key is required'
+    if (!trimmed) return "Key is required"
     const dup = list.find(
       (e) =>
         e.uuid !== excludeUuid &&
-        e.key.trim().toLowerCase() === trimmed.toLowerCase(),
+        e.key.trim().toLowerCase() === trimmed.toLowerCase()
     )
-    if (dup) return `Duplicate key «${dup.key}»`
+    if (dup) return `Key «${dup.key}» already exists in ${section}`
     return null
   }
 
@@ -155,16 +221,16 @@ export function EnvironmentVariableEditor({
     setRowError(null)
   }
 
-  function startAdd() {
+  function startAdd(section: SectionName) {
     if (savingKey) return
     setAdding(true)
     setAddingDraft({
       uuid: null,
-      key: '',
-      value: '',
+      key: "",
+      value: "",
       is_literal: false,
       is_multiline: false,
-      is_preview: false,
+      is_preview: section === "Preview",
     })
     setRowError(null)
   }
@@ -188,7 +254,11 @@ export function EnvironmentVariableEditor({
 
   async function handleSaveEdit(env: EnvironmentVariable) {
     if (!draft || savingKey) return
-    const keyError = validateKey(draft.key, envs ?? [], env.uuid)
+    // Duplicates are checked within the row's own section only: the same key
+    // may legitimately exist in both Production and Preview (ADR-0008).
+    const section = sectionOf(env.is_preview)
+    const sectionList = section === "Preview" ? previewEnvs : productionEnvs
+    const keyError = validateKey(draft.key, sectionList, env.uuid, section)
     if (keyError) {
       setRowError({ uuid: env.uuid, message: keyError })
       return
@@ -217,8 +287,8 @@ export function EnvironmentVariableEditor({
                 is_multiline: draft.is_multiline,
                 is_preview: draft.is_preview,
               }
-            : e,
-        ),
+            : e
+        )
       )
     }
     try {
@@ -244,29 +314,33 @@ export function EnvironmentVariableEditor({
           is_shared: env.is_shared,
         }
         setEnvs((prev) =>
-          (prev ?? []).map((e) => (e.uuid === env.uuid ? added : e)),
+          (prev ?? []).map((e) => (e.uuid === env.uuid ? added : e))
         )
       } else {
         // The PATCH response is the authoritative updated var (incl. the
         // decrypted real_value); reconcile over the optimistic write.
         setEnvs((prev) =>
-          (prev ?? []).map((e) => (e.uuid === env.uuid ? { ...e, ...updated } : e)),
+          (prev ?? []).map((e) =>
+            e.uuid === env.uuid ? { ...e, ...updated } : e
+          )
         )
       }
       setEditingKey(null)
       setDraft(null)
-      onChanged?.(renamed ? `Renamed to ${draft.key.trim()}` : `Saved ${draft.key.trim()}`)
+      onChanged?.(
+        renamed ? `Renamed to ${draft.key.trim()}` : `Saved ${draft.key.trim()}`
+      )
     } catch (err) {
       // Revert to the server's value on failure (the row still shows what we
       // tried to save as its draft — the error explains why it didn't stick).
       setEnvs((prev) =>
-        (prev ?? []).map((e) => (e.uuid === env.uuid ? env : e)),
+        (prev ?? []).map((e) => (e.uuid === env.uuid ? env : e))
       )
       setRowError({
         uuid: env.uuid,
-        message: err instanceof Error ? err.message : 'Save failed',
+        message: err instanceof Error ? err.message : "Save failed",
       })
-      onError?.(err instanceof Error ? err.message : 'Save failed')
+      onError?.(err instanceof Error ? err.message : "Save failed")
     } finally {
       setSavingKey(null)
     }
@@ -274,12 +348,14 @@ export function EnvironmentVariableEditor({
 
   async function handleSaveAdd() {
     if (!addingDraft || savingKey) return
-    const keyError = validateKey(addingDraft.key, envs ?? [], null)
+    const section = sectionOf(addingDraft.is_preview)
+    const sectionList = section === "Preview" ? previewEnvs : productionEnvs
+    const keyError = validateKey(addingDraft.key, sectionList, null, section)
     if (keyError) {
-      setRowError({ uuid: '__add__', message: keyError })
+      setRowError({ uuid: "__add__", message: keyError })
       return
     }
-    setSavingKey('__add__')
+    setSavingKey("__add__")
     setRowError(null)
     const payload = draftToPayload({ ...addingDraft }, type)
     try {
@@ -300,10 +376,10 @@ export function EnvironmentVariableEditor({
       onChanged?.(`Added ${addingDraft.key.trim()}`)
     } catch (err) {
       setRowError({
-        uuid: '__add__',
-        message: err instanceof Error ? err.message : 'Save failed',
+        uuid: "__add__",
+        message: err instanceof Error ? err.message : "Save failed",
       })
-      onError?.(err instanceof Error ? err.message : 'Save failed')
+      onError?.(err instanceof Error ? err.message : "Save failed")
     } finally {
       setSavingKey(null)
     }
@@ -325,9 +401,9 @@ export function EnvironmentVariableEditor({
     } catch (err) {
       setRowError({
         uuid: env.uuid,
-        message: err instanceof Error ? err.message : 'Delete failed',
+        message: err instanceof Error ? err.message : "Delete failed",
       })
-      onError?.(err instanceof Error ? err.message : 'Delete failed')
+      onError?.(err instanceof Error ? err.message : "Delete failed")
       setConfirmingDelete(null)
     } finally {
       setSavingKey(null)
@@ -352,22 +428,27 @@ export function EnvironmentVariableEditor({
   }
 
   const totalCount = envs.length
+  const visibleCount = visibleProduction.length + visiblePreview.length
+  // The Preview section exists only for applications (supportsPreviewSection
+  // above). Services and databases keep the flat list (ADR-0008).
 
   return (
     <div>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-medium text-foreground">Environment variables</span>
+        <span className="text-sm font-medium text-foreground">
+          Environment variables
+        </span>
         <span className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">
             {isFiltering
-              ? `${visibleEnvs.length} of ${totalCount} ${totalCount === 1 ? 'variable' : 'variables'}`
-              : `${totalCount} ${totalCount === 1 ? 'variable' : 'variables'}`}
+              ? `${visibleCount} of ${totalCount} ${totalCount === 1 ? "variable" : "variables"}`
+              : `${totalCount} ${totalCount === 1 ? "variable" : "variables"}`}
           </span>
           <button
             type="button"
             onClick={() => setRevealed((r) => !r)}
-            aria-label={revealed ? 'Hide all values' : 'Reveal all values'}
-            title={revealed ? 'Hide all values' : 'Reveal all values'}
+            aria-label={revealed ? "Hide all values" : "Reveal all values"}
+            title={revealed ? "Hide all values" : "Reveal all values"}
             className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
           >
             {revealed ? (
@@ -381,22 +462,22 @@ export function EnvironmentVariableEditor({
 
       {envs.length > 0 && (
         <div className="relative mt-2">
-          <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Search className="pointer-events-none absolute top-1/2 left-2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <input
             type="text"
             value={searchKey}
             onChange={(e) => setSearchKey(e.target.value)}
             placeholder="Search by key…"
             aria-label="Search variables by key"
-            className="w-full rounded-md border border-border bg-background py-1 pl-7 pr-7 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-foreground/40"
+            className="w-full rounded-md border border-border bg-background py-1 pr-7 pl-7 text-sm text-foreground placeholder:text-muted-foreground focus:ring-1 focus:ring-foreground/40 focus:outline-none"
           />
           {searchKey && (
             <button
               type="button"
-              onClick={() => setSearchKey('')}
+              onClick={() => setSearchKey("")}
               aria-label="Clear search"
               title="Clear search"
-              className="absolute right-1.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-muted"
+              className="absolute top-1/2 right-1.5 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-muted"
             >
               <X className="h-3.5 w-3.5" />
             </button>
@@ -410,100 +491,308 @@ export function EnvironmentVariableEditor({
         </p>
       )}
 
-      {envs.length > 0 && visibleEnvs.length === 0 && (
+      {envs.length > 0 && visibleCount === 0 && (
         <p className="mt-2 text-xs text-muted-foreground">
           No variables match &ldquo;{searchKey}&rdquo;.
         </p>
       )}
 
-      <ul className="mt-2 space-y-1.5">
-        {visibleEnvs.map((env) => {
-          const editing = editingKey === env.uuid
-          const saving = savingKey === env.uuid
-          const confirming = confirmingDelete === env.uuid
-          return (
-            <li key={env.uuid} className="rounded-md border border-border bg-muted/30 px-2.5 py-2">
-              {editing ? (
-                <EnvRowForm
-                  draft={draft ?? toDraft(env)}
-                  type={type}
-                  saving={saving}
-                  onChange={setDraft}
-                  onCancel={cancelEdit}
-                  onSave={() => void handleSaveEdit(env)}
-                />
-              ) : confirming ? (
-                <div className="flex items-center justify-between gap-2 text-xs">
-                  <span>
-                    Delete <span className="font-mono font-semibold">{env.key}</span>?
-                  </span>
-                  <span className="flex shrink-0 gap-1">
-                    <button
-                      type="button"
-                      onClick={cancelConfirmDelete}
-                      disabled={saving}
-                      className="rounded-md border border-border px-2 py-0.5 hover:bg-muted disabled:opacity-40"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleDelete(env)}
-                      disabled={saving}
-                      className="rounded-md bg-destructive px-2 py-0.5 font-medium text-white hover:bg-destructive/90 disabled:opacity-40"
-                    >
-                      {saving ? 'Deleting…' : 'Delete'}
-                    </button>
-                  </span>
-                </div>
-              ) : (
-                <EnvRowDisplay
-                  env={env}
-                  revealed={revealed}
-                  onEdit={() => startEdit(env)}
-                  onDelete={() => startConfirmDelete(env)}
-                  disabled={savingKey !== null}
-                />
-              )}
-              {rowError && rowError.uuid === env.uuid && (
-                <p className="mt-1.5 text-xs text-destructive">{rowError.message}</p>
-              )}
-            </li>
-          )
-        })}
+      {/* Production section — always open. */}
+      <EnvSection
+        title="Production"
+        count={productionEnvs.length}
+        visibleCount={visibleProduction.length}
+        isFiltering={isFiltering}
+        collapsed={false}
+        previewDisabledWarning={null}
+        addLabel="Add variable"
+        onAdd={adding || isFiltering ? undefined : () => startAdd("Production")}
+      >
+        <EnvList
+          envs={visibleProduction}
+          adding={adding && addingDraft?.is_preview === false}
+          addingDraft={addingDraft}
+          savingKey={savingKey}
+          editingKey={editingKey}
+          confirmingDelete={confirmingDelete}
+          draft={draft}
+          revealed={revealed}
+          rowError={rowError}
+          canAdd={canAdd}
+          isFiltering={isFiltering}
+          onEdit={startEdit}
+          onConfirmDelete={startConfirmDelete}
+          onCancelConfirmDelete={cancelConfirmDelete}
+          onDelete={handleDelete}
+          onSaveEdit={handleSaveEdit}
+          onSaveAdd={handleSaveAdd}
+          onDraftChange={setDraft}
+          onAddingDraftChange={setAddingDraft}
+          onCancelEdit={cancelEdit}
+          onCancelAdd={cancelAdd}
+        />
+      </EnvSection>
 
-        {adding && addingDraft && !isFiltering && (
-          <li className="rounded-md border border-border bg-muted/30 px-2 py-1.5">
-            <EnvRowForm
-              draft={addingDraft}
-              type={type}
-              saving={savingKey === '__add__'}
-              onChange={setAddingDraft}
-              onCancel={cancelAdd}
-              onSave={() => void handleSaveAdd()}
-              saveDisabled={!canAdd}
-            />
-            {rowError && rowError.uuid === '__add__' && (
-              <p className="mt-1.5 text-xs text-destructive">{rowError.message}</p>
+      {/* Preview section — applications only, collapsible. */}
+      {supportsPreviewSection && (
+        <EnvSection
+          title="Preview"
+          count={previewEnvs.length}
+          visibleCount={visiblePreview.length}
+          isFiltering={isFiltering}
+          collapsed={!previewOpen}
+          onToggle={() =>
+            setPreviewCollapsedOverride((c) => !(c ?? derivedPreviewCollapsed))
+          }
+          previewDisabledWarning={
+            previewEnvs.length > 0 && !(previewDeploymentsEnabled ?? false)
+              ? "Preview deployments are disabled for this application"
+              : null
+          }
+          addLabel="Add variable"
+          onAdd={
+            adding || isFiltering
+              ? undefined
+              : () => {
+                  // Adding to a collapsed Preview section opens it first, so
+                  // the new row is visible.
+                  setPreviewCollapsedOverride(false)
+                  startAdd("Preview")
+                }
+          }
+        >
+          <EnvList
+            envs={visiblePreview}
+            adding={adding && addingDraft?.is_preview === true}
+            addingDraft={addingDraft}
+            savingKey={savingKey}
+            editingKey={editingKey}
+            confirmingDelete={confirmingDelete}
+            draft={draft}
+            revealed={revealed}
+            rowError={rowError}
+            canAdd={canAdd}
+            isFiltering={isFiltering}
+            onEdit={startEdit}
+            onConfirmDelete={startConfirmDelete}
+            onCancelConfirmDelete={cancelConfirmDelete}
+            onDelete={handleDelete}
+            onSaveEdit={handleSaveEdit}
+            onSaveAdd={handleSaveAdd}
+            onDraftChange={setDraft}
+            onAddingDraftChange={setAddingDraft}
+            onCancelEdit={cancelEdit}
+            onCancelAdd={cancelAdd}
+          />
+        </EnvSection>
+      )}
+    </div>
+  )
+}
+
+function EnvSection({
+  title,
+  count,
+  visibleCount,
+  isFiltering,
+  collapsed,
+  onToggle,
+  previewDisabledWarning,
+  addLabel,
+  onAdd,
+  children,
+}: {
+  title: SectionName
+  count: number
+  visibleCount: number
+  isFiltering: boolean
+  collapsed: boolean
+  /** When omitted the header is static (e.g. Production, always open). */
+  onToggle?: () => void
+  /** Inline warning shown in the section header when previews are disabled. */
+  previewDisabledWarning: string | null
+  addLabel: string
+  onAdd: (() => void) | undefined
+  children: React.ReactNode
+}) {
+  return (
+    <div className="mt-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+          {onToggle ? (
+            <button
+              type="button"
+              onClick={onToggle}
+              aria-expanded={!collapsed}
+              aria-label={`Toggle ${title} section`}
+              className="flex items-center gap-1.5 text-sm font-medium text-foreground hover:text-foreground/80"
+            >
+              <span
+                className={cn(
+                  "text-xs text-muted-foreground transition-transform",
+                  !collapsed && "rotate-90"
+                )}
+              >
+                ▸
+              </span>
+              {title}
+            </button>
+          ) : (
+            title
+          )}
+          <span className="text-xs font-normal text-muted-foreground">
+            {isFiltering ? `${visibleCount} of ${count}` : count}
+          </span>
+        </span>
+        <span className="flex items-center gap-2">
+          {onAdd && (
+            <button
+              type="button"
+              onClick={onAdd}
+              aria-label={`Add ${title} variable`}
+              title={addLabel}
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </span>
+      </div>
+      {previewDisabledWarning && (
+        <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+          {previewDisabledWarning}
+        </p>
+      )}
+      {!collapsed && <div className="mt-1.5">{children}</div>}
+    </div>
+  )
+}
+
+function EnvList({
+  envs,
+  adding,
+  addingDraft,
+  savingKey,
+  editingKey,
+  confirmingDelete,
+  draft,
+  revealed,
+  rowError,
+  canAdd,
+  isFiltering,
+  onEdit,
+  onConfirmDelete,
+  onCancelConfirmDelete,
+  onDelete,
+  onSaveEdit,
+  onSaveAdd,
+  onDraftChange,
+  onAddingDraftChange,
+  onCancelEdit,
+  onCancelAdd,
+}: {
+  envs: EnvironmentVariable[]
+  adding: boolean
+  addingDraft: Draft | null
+  savingKey: string | null
+  editingKey: string | null
+  confirmingDelete: string | null
+  draft: Draft | null
+  revealed: boolean
+  rowError: { uuid: string; message: string } | null
+  canAdd: boolean
+  isFiltering: boolean
+  onEdit: (env: EnvironmentVariable) => void
+  onConfirmDelete: (env: EnvironmentVariable) => void
+  onCancelConfirmDelete: () => void
+  onDelete: (env: EnvironmentVariable) => Promise<void>
+  onSaveEdit: (env: EnvironmentVariable) => Promise<void>
+  onSaveAdd: () => Promise<void>
+  onDraftChange: (d: Draft) => void
+  onAddingDraftChange: (d: Draft) => void
+  onCancelEdit: () => void
+  onCancelAdd: () => void
+}) {
+  return (
+    <ul className="space-y-1.5">
+      {envs.map((env) => {
+        const editing = editingKey === env.uuid
+        const saving = savingKey === env.uuid
+        const confirming = confirmingDelete === env.uuid
+        return (
+          <li
+            key={env.uuid}
+            className="rounded-md border border-border bg-muted/30 px-2.5 py-2"
+          >
+            {editing ? (
+              <EnvRowForm
+                draft={draft ?? toDraft(env)}
+                saving={saving}
+                onChange={onDraftChange}
+                onCancel={onCancelEdit}
+                onSave={() => void onSaveEdit(env)}
+              />
+            ) : confirming ? (
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span>
+                  Delete{" "}
+                  <span className="font-mono font-semibold">{env.key}</span>?
+                </span>
+                <span className="flex shrink-0 gap-1">
+                  <button
+                    type="button"
+                    onClick={onCancelConfirmDelete}
+                    disabled={saving}
+                    className="rounded-md border border-border px-2 py-0.5 hover:bg-muted disabled:opacity-40"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void onDelete(env)}
+                    disabled={saving}
+                    className="rounded-md bg-destructive px-2 py-0.5 font-medium text-white hover:bg-destructive/90 disabled:opacity-40"
+                  >
+                    {saving ? "Deleting…" : "Delete"}
+                  </button>
+                </span>
+              </div>
+            ) : (
+              <EnvRowDisplay
+                env={env}
+                revealed={revealed}
+                onEdit={() => onEdit(env)}
+                onDelete={() => onConfirmDelete(env)}
+                disabled={savingKey !== null}
+              />
+            )}
+            {rowError && rowError.uuid === env.uuid && (
+              <p className="mt-1.5 text-xs text-destructive">
+                {rowError.message}
+              </p>
             )}
           </li>
-        )}
-      </ul>
+        )
+      })}
 
-      <div className="mt-2">
-        {adding || isFiltering ? null : (
-          <button
-            type="button"
-            onClick={startAdd}
-            disabled={savingKey !== null}
-            className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-muted disabled:opacity-40"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add variable
-          </button>
-        )}
-      </div>
-    </div>
+      {adding && addingDraft && !isFiltering && (
+        <li className="rounded-md border border-border bg-muted/30 px-2 py-1.5">
+          <EnvRowForm
+            draft={addingDraft}
+            saving={savingKey === "__add__"}
+            onChange={onAddingDraftChange}
+            onCancel={onCancelAdd}
+            onSave={() => void onSaveAdd()}
+            saveDisabled={!canAdd}
+          />
+          {rowError && rowError.uuid === "__add__" && (
+            <p className="mt-1.5 text-xs text-destructive">
+              {rowError.message}
+            </p>
+          )}
+        </li>
+      )}
+    </ul>
   )
 }
 
@@ -522,12 +811,12 @@ function EnvRowDisplay({
   disabled: boolean
 }) {
   const readable = isValueReadable(env)
-  const shown = readable ? envValue(env) : ''
+  const shown = readable ? envValue(env) : ""
 
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-center gap-2">
-        <span className="min-w-0 flex-1 break-words whitespace-pre-wrap font-mono text-sm text-foreground">
+        <span className="min-w-0 flex-1 font-mono text-sm break-words whitespace-pre-wrap text-foreground">
           {env.key}
         </span>
         <EnvBadges env={env} />
@@ -555,11 +844,13 @@ function EnvRowDisplay({
         </span>
       </div>
       {readable ? (
-        <div className="max-h-24 overflow-auto break-words whitespace-pre-wrap font-mono text-sm text-muted-foreground">
-          {revealed ? shown : '••••••••••'}
+        <div className="max-h-24 overflow-auto font-mono text-sm break-words whitespace-pre-wrap text-muted-foreground">
+          {revealed ? shown : "••••••••••"}
         </div>
       ) : (
-        <p className="text-xs italic text-muted-foreground">value not readable</p>
+        <p className="text-xs text-muted-foreground italic">
+          value not readable
+        </p>
       )}
     </div>
   )
@@ -567,10 +858,12 @@ function EnvRowDisplay({
 
 function EnvBadges({ env }: { env: EnvironmentVariable }) {
   const badges: Array<{ label: string; title: string }> = []
-  if (env.is_runtime) badges.push({ label: 'runtime', title: 'Runtime variable' })
-  if (env.is_buildtime) badges.push({ label: 'buildtime', title: 'Build-time variable' })
-  if (env.is_shared) badges.push({ label: 'shared', title: 'Shared variable' })
-  if (env.is_shown_once) badges.push({ label: 'once', title: 'Shown once' })
+  if (env.is_runtime)
+    badges.push({ label: "runtime", title: "Runtime variable" })
+  if (env.is_buildtime)
+    badges.push({ label: "buildtime", title: "Build-time variable" })
+  if (env.is_shared) badges.push({ label: "shared", title: "Shared variable" })
+  if (env.is_shown_once) badges.push({ label: "once", title: "Shown once" })
   if (badges.length === 0) return null
   return (
     <span className="shrink-0 gap-1">
@@ -578,7 +871,7 @@ function EnvBadges({ env }: { env: EnvironmentVariable }) {
         <span
           key={b.label}
           title={b.title}
-          className="rounded border border-border px-1 py-0 text-[9px] uppercase tracking-wider text-muted-foreground"
+          className="rounded border border-border px-1 py-0 text-[9px] tracking-wider text-muted-foreground uppercase"
         >
           {b.label}
         </span>
@@ -589,7 +882,6 @@ function EnvBadges({ env }: { env: EnvironmentVariable }) {
 
 function EnvRowForm({
   draft,
-  type,
   saving,
   onChange,
   onCancel,
@@ -597,14 +889,12 @@ function EnvRowForm({
   saveDisabled = false,
 }: {
   draft: Draft
-  type: ResourceType
   saving: boolean
   onChange: (d: Draft) => void
   onCancel: () => void
   onSave: () => void
   saveDisabled?: boolean
 }) {
-  const supportsPreview = envSupportsPreview(type)
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-1.5">
@@ -616,10 +906,10 @@ function EnvRowForm({
           value={draft.key}
           onChange={(e) => onChange({ ...draft, key: e.target.value })}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') {
+            if (e.key === "Enter") {
               e.preventDefault()
               onSave()
-            } else if (e.key === 'Escape') {
+            } else if (e.key === "Escape") {
               e.preventDefault()
               onCancel()
             }
@@ -628,7 +918,7 @@ function EnvRowForm({
           aria-label="Variable key"
           placeholder="KEY"
           disabled={saving}
-          className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 font-mono text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-foreground/40 disabled:opacity-50"
+          className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 font-mono text-sm text-foreground focus:ring-1 focus:ring-foreground/40 focus:outline-none disabled:opacity-50"
         />
         <button
           type="button"
@@ -659,10 +949,10 @@ function EnvRowForm({
         value={draft.value}
         onChange={(value) => onChange({ ...draft, value })}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
             e.preventDefault()
             onSave()
-          } else if (e.key === 'Escape') {
+          } else if (e.key === "Escape") {
             e.preventDefault()
             onCancel()
           }
@@ -684,14 +974,6 @@ function EnvRowForm({
           onChange={(v) => onChange({ ...draft, is_multiline: v })}
           disabled={saving}
         />
-        {supportsPreview && (
-          <EnvCheckbox
-            label="Preview"
-            checked={draft.is_preview}
-            onChange={(v) => onChange({ ...draft, is_preview: v })}
-            disabled={saving}
-          />
-        )}
       </div>
     </div>
   )
@@ -723,7 +1005,7 @@ function AutoGrowTextarea({
   useEffect(() => {
     const el = ref.current
     if (!el) return
-    el.style.height = 'auto'
+    el.style.height = "auto"
     el.style.height = `${el.scrollHeight}px`
   }, [value])
 
@@ -738,7 +1020,7 @@ function AutoGrowTextarea({
       placeholder={placeholder}
       disabled={disabled}
       rows={1}
-      className="min-h-[2.125rem] w-full resize-none rounded-md border border-border bg-background px-2 py-1 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-foreground/40 disabled:opacity-50"
+      className="min-h-[2.125rem] w-full resize-none rounded-md border border-border bg-background px-2 py-1 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:ring-1 focus:ring-foreground/40 focus:outline-none disabled:opacity-50"
     />
   )
 }
@@ -757,8 +1039,8 @@ function EnvCheckbox({
   return (
     <label
       className={cn(
-        'flex items-center gap-1.5 text-xs text-muted-foreground',
-        disabled && 'opacity-40',
+        "flex items-center gap-1.5 text-xs text-muted-foreground",
+        disabled && "opacity-40"
       )}
     >
       <input

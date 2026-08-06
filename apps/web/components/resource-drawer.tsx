@@ -1,6 +1,6 @@
-'use client'
+"use client"
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from "react"
 import {
   Box,
   Workflow,
@@ -13,23 +13,26 @@ import {
   Check,
   Loader2,
   Pencil,
-} from 'lucide-react'
-import { CopyButton } from './copy-button'
-import { StatusIndicator } from './status-indicator'
-import { EnvironmentVariableEditor } from './environment-variable-editor'
-import { isResourceActive, useClient } from '@/hooks/use-coolify'
-import type { Resource, ResourceType, Tag as TagType } from '@/lib/types'
+} from "lucide-react"
+import { CopyButton } from "./copy-button"
+import { StatusIndicator } from "./status-indicator"
+import { EnvironmentVariableEditor } from "./environment-variable-editor"
+import { isResourceActive, useClient } from "@/hooks/use-coolify"
+import type { Resource, ResourceType, Tag as TagType } from "@/lib/types"
 import {
   classifyApplicationSource,
   dockerImageLabel,
   editableConfig,
   configEditPayload,
   type EditableConfig,
-} from '@/lib/app-detail'
-import { classifyResourceState, RESOURCE_STATE_LABEL } from '@/lib/resource-state'
-import { cn } from '@workspace/ui/lib/utils'
+} from "@/lib/app-detail"
+import {
+  classifyResourceState,
+  RESOURCE_STATE_LABEL,
+} from "@/lib/resource-state"
+import { cn } from "@workspace/ui/lib/utils"
 
-export type DrawerTab = 'details' | 'vars'
+export type DrawerTab = "details" | "vars"
 
 const typeIcons = {
   application: Box,
@@ -46,9 +49,12 @@ interface ResourceDrawerProps {
   onTabChange: (tab: DrawerTab) => void
   onClose: () => void
   /** Toast sink; forwarded to the env editor for save/delete feedback. */
-  onNotify?: (message: string, type: 'success' | 'error') => void
+  onNotify?: (message: string, type: "success" | "error") => void
   /** Persist an edited Docker image tag or git branch; resolves true on success. */
-  onConfigEdit?: (uuid: string, payload: Record<string, unknown>) => Promise<boolean>
+  onConfigEdit?: (
+    uuid: string,
+    payload: Record<string, unknown>
+  ) => Promise<boolean>
 }
 
 function PropertyRow({
@@ -65,7 +71,7 @@ function PropertyRow({
   return (
     <div className="flex items-start gap-2">
       <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-      <div className={cn('min-w-0 flex-1', className)}>
+      <div className={cn("min-w-0 flex-1", className)}>
         <p className="text-xs text-muted-foreground">{label}</p>
         <div className="mt-0.5 text-sm text-foreground">{children}</div>
       </div>
@@ -134,7 +140,7 @@ function EditableValue({
         title={`Click to edit ${label}`}
         className="group inline-flex max-w-full items-center gap-1 rounded-sm text-left hover:bg-muted disabled:cursor-default disabled:opacity-50"
       >
-        <span className="truncate">{config.value || '—'}</span>
+        <span className="truncate">{config.value || "—"}</span>
         <Pencil className="h-3 w-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
       </button>
     )
@@ -149,10 +155,10 @@ function EditableValue({
         onChange={(e) => setValue(e.target.value)}
         onFocus={(e) => e.target.select()}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') {
+          if (e.key === "Enter") {
             e.preventDefault()
             void commit()
-          } else if (e.key === 'Escape') {
+          } else if (e.key === "Escape") {
             e.preventDefault()
             cancel()
           }
@@ -161,7 +167,7 @@ function EditableValue({
         disabled={busy}
         spellCheck={false}
         aria-label={label}
-        className="w-40 rounded-md border border-border bg-background px-2 py-0.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-foreground/40 disabled:opacity-50"
+        className="w-40 rounded-md border border-border bg-background px-2 py-0.5 text-sm text-foreground focus:ring-1 focus:ring-foreground/40 focus:outline-none disabled:opacity-50"
       />
       <button
         type="button"
@@ -209,10 +215,10 @@ function TabButton({
       aria-selected={active}
       onClick={onClick}
       className={cn(
-        '-mb-px border-b-2 px-3 py-1.5 text-xs font-medium',
+        "-mb-px border-b-2 px-3 py-1.5 text-xs font-medium",
         active
-          ? 'border-foreground text-foreground'
-          : 'border-transparent text-muted-foreground hover:text-foreground',
+          ? "border-foreground text-foreground"
+          : "border-transparent text-muted-foreground hover:text-foreground"
       )}
     >
       {children}
@@ -233,36 +239,65 @@ export function ResourceDrawer({
 }: ResourceDrawerProps) {
   const { client } = useClient()
   const Icon = typeIcons[type]
-  const name = (resource as { name?: string }).name || 'Unnamed'
+  const name = (resource as { name?: string }).name || "Unnamed"
   const status = (resource as { status?: string }).status
   const state = classifyResourceState(status)
   const active = isResourceActive(status)
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === "Escape") onClose()
     }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
   }, [onClose])
 
   // The API embeds the server a resource is actually deployed on at
   // destination.server (ADR-0001).
-  const serverName = (resource as { destination?: { server?: { name?: string } } })
-    .destination?.server?.name
+  const serverName = (
+    resource as { destination?: { server?: { name?: string } } }
+  ).destination?.server?.name
 
   // Application-specific fields (git / docker image). Coolify stores a
   // placeholder `git_repository`/`git_branch` on non-git apps (dockerimage,
   // dockerfile), so `build_pack` is the discriminator, not the git fields.
-  const app = type === 'application' ? (resource as ApplicationLike) : null
+  const app = type === "application" ? (resource as ApplicationLike) : null
   const appSource = app ? classifyApplicationSource(app) : null
   const repo = app?.git_repository?.trim()
   const dockerImage = app?.docker_registry_image_name?.trim()
   const imageLabel = dockerImageLabel(app ?? {})
-  const showGit = appSource === 'git' && !!repo
-  const showDockerImage = appSource === 'docker-image' && !!dockerImage
+  const showGit = appSource === "git" && !!repo
+  const showDockerImage = appSource === "docker-image" && !!dockerImage
   const editConfig = app ? editableConfig(app) : null
   const [savingConfig, setSavingConfig] = useState(false)
+
+  // The list endpoint does not return an application's `settings`, so the
+  // preview-deployments flag has to come from the detail endpoint. Fetch it
+  // once per application (ADR-0008); services and databases never need it.
+  const [previewDeploymentsEnabled, setPreviewDeploymentsEnabled] = useState<
+    boolean | undefined
+  >(undefined)
+  useEffect(() => {
+    let cancelled = false
+    setPreviewDeploymentsEnabled(undefined)
+    if (type !== "application" || !client) return
+    client
+      .getApplication(resource.uuid)
+      .then((detail) => {
+        if (!cancelled) {
+          setPreviewDeploymentsEnabled(
+            detail.settings?.is_preview_deployments_enabled
+          )
+        }
+      })
+      .catch(() => {
+        // Best-effort: without the flag the Env Editor falls back to deriving
+        // the Preview section state from the presence of preview variables.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [client, type, resource.uuid])
 
   const commitConfig = async (next: EditableConfig) => {
     if (!onConfigEdit) return false
@@ -275,10 +310,15 @@ export function ResourceDrawer({
   }
 
   const fqdn = (resource as { fqdn?: string | null }).fqdn?.trim()
-  const portsExposes = (resource as { ports_exposes?: string }).ports_exposes?.trim()
-  const portsMappings = (resource as { ports_mappings?: string | null }).ports_mappings?.trim()
-  const networkAliases = (resource as { custom_network_aliases?: string | null })
-    .custom_network_aliases?.trim()
+  const portsExposes = (
+    resource as { ports_exposes?: string }
+  ).ports_exposes?.trim()
+  const portsMappings = (
+    resource as { ports_mappings?: string | null }
+  ).ports_mappings?.trim()
+  const networkAliases = (
+    resource as { custom_network_aliases?: string | null }
+  ).custom_network_aliases?.trim()
   // Coolify names the container after the resource UUID; the API does not
   // expose a separate container_name field.
   const containerName =
@@ -297,13 +337,13 @@ export function ResourceDrawer({
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
             <h2 className="min-w-0 truncate text-sm font-semibold">{name}</h2>
-            <span className="shrink-0 rounded border border-border px-1 py-0 text-[10px] uppercase tracking-wider text-muted-foreground">
+            <span className="shrink-0 rounded border border-border px-1 py-0 text-[10px] tracking-wider text-muted-foreground uppercase">
               {type}
             </span>
           </div>
           {(projectName || environmentName) && (
             <p className="truncate text-xs text-muted-foreground">
-              {[projectName, environmentName].filter(Boolean).join(' / ')}
+              {[projectName, environmentName].filter(Boolean).join(" / ")}
             </p>
           )}
         </div>
@@ -318,25 +358,28 @@ export function ResourceDrawer({
       </div>
 
       <div className="mt-3 flex gap-1 border-b border-border" role="tablist">
-        <TabButton active={tab === 'details'} onClick={() => onTabChange('details')}>
+        <TabButton
+          active={tab === "details"}
+          onClick={() => onTabChange("details")}
+        >
           Details
         </TabButton>
-        <TabButton active={tab === 'vars'} onClick={() => onTabChange('vars')}>
+        <TabButton active={tab === "vars"} onClick={() => onTabChange("vars")}>
           Variables
         </TabButton>
       </div>
 
-      {tab === 'details' ? (
+      {tab === "details" ? (
         <div className="mt-4 space-y-3">
           <PropertyRow icon={Server} label="Server">
-            <Value>{serverName ?? '—'}</Value>
+            <Value>{serverName ?? "—"}</Value>
           </PropertyRow>
 
-          {type === 'application' && showGit && (
+          {type === "application" && showGit && (
             <PropertyRow icon={GitBranch} label="Repository">
               <div className="flex min-w-0 flex-col gap-1">
                 <Value>{repo}</Value>
-                {editConfig?.kind === 'branch' && (
+                {editConfig?.kind === "branch" && (
                   <EditableValue
                     config={editConfig}
                     label="Git branch"
@@ -348,11 +391,11 @@ export function ResourceDrawer({
             </PropertyRow>
           )}
 
-          {type === 'application' && !showGit && showDockerImage && (
+          {type === "application" && !showGit && showDockerImage && (
             <PropertyRow icon={Container} label="Docker image">
               <div className="flex min-w-0 flex-col gap-1">
                 <Value>{imageLabel}</Value>
-                {editConfig?.kind === 'tag' && (
+                {editConfig?.kind === "tag" && (
                   <EditableValue
                     config={editConfig}
                     label="Image tag"
@@ -375,7 +418,7 @@ export function ResourceDrawer({
             </PropertyRow>
           )}
 
-          {type === 'application' && fqdn && (
+          {type === "application" && fqdn && (
             <PropertyRow icon={Box} label="Domain">
               <div className="flex items-center gap-1.5">
                 <span className="min-w-0 flex-1 break-words">{fqdn}</span>
@@ -412,7 +455,7 @@ export function ResourceDrawer({
                 {tags.map((t) => (
                   <span
                     key={t.uuid}
-                    className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground"
+                    className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] tracking-wider text-muted-foreground uppercase"
                   >
                     {t.name}
                   </span>
@@ -430,8 +473,9 @@ export function ResourceDrawer({
               client={client}
               type={type}
               resourceUuid={resource.uuid}
-              onChanged={(message) => onNotify?.(message, 'success')}
-              onError={(message) => onNotify?.(message, 'error')}
+              previewDeploymentsEnabled={previewDeploymentsEnabled}
+              onChanged={(message) => onNotify?.(message, "success")}
+              onError={(message) => onNotify?.(message, "error")}
             />
           ) : (
             <p className="text-sm text-muted-foreground">
