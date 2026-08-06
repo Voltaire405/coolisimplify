@@ -71,3 +71,7 @@ _Avoid_: Env, environment setting, configuration value
 **Env Editor**:
 The Variables tab of the **Drawer** that lists a Resource's Environment Variables and lets the user add, edit, and delete them. Distinct from **Details** (the metadata tab).
 _Avoid_: Variable manager, env panel, secrets editor
+
+**ACCEPT**:
+The exact uppercase token the user must type in a delete confirmation dialog to enable the destructive button. Used for both single-resource and batch deletes; typing the Resource's name is not required.
+_Avoid_: Type the resource name, confirm-typed

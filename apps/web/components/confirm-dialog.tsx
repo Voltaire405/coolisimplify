@@ -164,7 +164,7 @@ export function DeleteConfirmDialog({
     inputRef.current?.focus()
   }, [])
 
-  const nameMatches = typed === resourceName
+  const accepted = typed === 'ACCEPT'
 
   return (
     <ModalShell onCancel={onCancel} labelledBy="delete-dialog-title">
@@ -189,8 +189,9 @@ export function DeleteConfirmDialog({
       />
 
       <label className="mt-4 block text-xs text-muted-foreground">
-        Type <span className="font-mono font-semibold text-foreground">{resourceName}</span> to
-        confirm:
+        Type{' '}
+        <span className="font-mono font-semibold text-foreground">ACCEPT</span>{' '}
+        to confirm:
         <input
           ref={inputRef}
           type="text"
@@ -210,7 +211,7 @@ export function DeleteConfirmDialog({
           Cancel
         </button>
         <button
-          disabled={!nameMatches}
+          disabled={!accepted}
           onClick={() => onConfirm(options)}
           className="rounded-md bg-destructive px-3 py-1.5 text-sm font-medium text-white hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-40"
         >
