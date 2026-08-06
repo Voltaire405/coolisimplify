@@ -20,6 +20,7 @@ import {
 } from '@/lib/wait-for-completion'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { ConfigButton } from '@/components/config-button'
+import { ThemeToggle } from '@/components/theme-toggle'
 import { Sidebar } from '@/components/sidebar'
 import { EnvironmentSection } from '@/components/environment-section'
 import { BatchQueue } from '@/components/batch-queue'
@@ -1666,6 +1667,7 @@ function DashboardPage() {
                   >
                     <RefreshCw className="h-3.5 w-3.5" />
                   </button>
+                  <ThemeToggle />
                 </div>
               </div>
             </div>
