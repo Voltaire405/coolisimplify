@@ -5,7 +5,9 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-// Synchronized from Coolify's v4.x source of truth:
+// Based on Coolify's v4.x openapi.yaml, but NOT a verbatim copy: where the
+// upstream document disagreed with a live instance, the file follows the
+// instance. Those spots are marked `[verified]`; see the header of the YAML.
 // https://github.com/coollabsio/coolify/blob/v4.x/openapi.yaml
 const YAML = join(HERE, '..', 'coolify-openapi-v4.x.yaml')
 const lines = readFileSync(YAML, 'utf8').split('\n')

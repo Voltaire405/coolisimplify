@@ -1,3 +1,16 @@
+# Upstream: https://github.com/coollabsio/coolify/blob/v4.x/openapi.yaml
+#
+# NOT a verbatim copy. Where the upstream document disagreed with a live v4
+# instance, this file follows the instance — the document was wrong, and
+# trusting it produced silent failures rather than errors. Corrections are
+# marked `[verified]` in the description they touch; re-syncing from upstream
+# means re-applying them. See docs/adr/0006-deploy-verdict-from-deployment-record.md.
+#
+# Corrected so far: the response of /deployments/applications/{uuid} (an
+# envelope of deployment records, not an array of applications); the terminal
+# values and meaning of a deployment `status`; the encoding of deployment
+# `logs`; and fields returned by Application, Service, Server, Environment and
+# EnvironmentVariable that were absent from their schemas.
 openapi: 3.1.0
 info:
   title: Coolify
@@ -5502,13 +5515,19 @@ paths:
             minimum: 1
       responses:
         '200':
-          description: 'List application deployments by using the app uuid.'
+          description: '[verified] List application deployments by using the app uuid. Returns an envelope, newest deployment first; `count` is the full history size while `deployments` holds only the requested page.'
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Application'
+                type: object
+                properties:
+                  count:
+                    type: integer
+                    description: 'Total number of deployments for this application, ignoring skip/take.'
+                  deployments:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ApplicationDeploymentQueue'
         '401':
           $ref: '#/components/responses/401'
         '400':
@@ -10558,7 +10577,7 @@ components:
           description: 'CPU shares.'
         status:
           type: string
-          description: 'Application status.'
+          description: '[verified] Status of the running container, e.g. `running:healthy`, `running:unknown` (no healthcheck defined), `exited`. It does NOT describe deployments: a failed build leaves the previous container untouched and still reporting `running:healthy`, so a successful and a failed deploy look identical here. Use the deployment `status` from /deployments/{uuid} to tell them apart.'
         preview_url_template:
           type: string
           description: 'Preview URL template.'
@@ -10709,6 +10728,47 @@ components:
           description: 'Password for HTTP Basic Authentication'
         settings:
           $ref: '#/components/schemas/ApplicationSetting'
+          description: '[verified] Not returned by the list endpoint; fetch a single application to get it.'
+        destination:
+          type: object
+          description: '[verified] Where the application runs. Carries the nested `server`, whose `name` is the reliable display name for the host — top-level server ids are not.'
+          properties:
+            id: { type: integer }
+            name: { type: string }
+            uuid: { type: string }
+            network: { type: string }
+            server_id: { type: integer }
+            created_at: { type: string }
+            updated_at: { type: string }
+            server:
+              $ref: '#/components/schemas/Server'
+        server_status:
+          type: boolean
+          description: '[verified] Whether the server hosting this application is reachable.'
+        source_type:
+          type: string
+          nullable: true
+        last_online_at:
+          type: string
+          nullable: true
+        last_restart_at:
+          type: string
+          nullable: true
+        last_restart_type:
+          type: string
+          nullable: true
+        restart_count:
+          type: integer
+        max_restart_count:
+          type: integer
+        additional_servers:
+          type: array
+          items:
+            type: object
+        additional_servers_count:
+          type: integer
+        additional_networks_count:
+          type: integer
       type: object
     ApplicationDeploymentQueue:
       description: 'Project model'
@@ -10739,6 +10799,8 @@ components:
           type: string
         status:
           type: string
+          enum: ['queued', 'in_progress', 'finished', 'failed', 'cancelled-by-user']
+          description: '[verified] Lifecycle state. Only `finished`, `failed` and `cancelled-by-user` are terminal — the other two mean the deployment is still running. This is the only field that says whether a deploy succeeded: a failed build leaves the previous container up and still reporting `running:healthy`, so the resource status cannot tell the two apart.'
         is_webhook:
           type: boolean
         is_api:
@@ -10747,8 +10809,13 @@ components:
           type: string
         updated_at:
           type: string
+        finished_at:
+          type: string
+          nullable: true
         logs:
           type: string
+          nullable: true
+          description: '[verified] Build output, JSON-encoded. Decodes to an array of `{ command, output, type, timestamp, hidden, batch }` in execution order — the entries carry no sequence field, and `command` is null whenever the content sits in `output`. Entries flagged `hidden` are internal bookkeeping.'
         current_process_id:
           type: string
         restart_only:
@@ -10757,6 +10824,15 @@ components:
           type: string
         server_id:
           type: integer
+        build_server_id:
+          type: integer
+          nullable: true
+        horizon_job_id:
+          type: string
+          nullable: true
+        horizon_job_worker:
+          type: string
+          nullable: true
         application_name:
           type: string
         server_name:
@@ -10853,10 +10929,13 @@ components:
           nullable: true
       type: object
     Environment:
-      description: 'Environment model'
+      description: '[verified] Environment model. The list endpoint returns only `id`, `uuid` and `name`; the remaining fields appear when fetching a single environment.'
       properties:
         id:
           type: integer
+        uuid:
+          type: string
+          description: 'The environment UUID — the identifier to address it by.'
         name:
           type: string
         project_id:
@@ -10904,6 +10983,18 @@ components:
           nullable: true
         version:
           type: string
+        is_required:
+          type: boolean
+        is_really_required:
+          type: boolean
+        is_buildpack_control:
+          type: boolean
+        is_coolify:
+          type: boolean
+          description: '[verified] Set for variables Coolify injects itself, as opposed to user-defined ones.'
+        order:
+          type: integer
+          nullable: true
         created_at:
           type: string
         updated_at:
@@ -11082,6 +11173,15 @@ components:
         swarm_cluster:
           type: string
           description: 'The swarm cluster configuration.'
+        is_coolify_host:
+          type: boolean
+          description: '[verified] Whether this server is the one Coolify itself runs on.'
+        is_reachable:
+          type: boolean
+          description: '[verified] Whether Coolify can currently connect to the server.'
+        is_usable:
+          type: boolean
+          description: '[verified] Whether the server is reachable and correctly provisioned for deployments.'
         settings:
           $ref: '#/components/schemas/ServerSetting'
       type: object
@@ -11227,6 +11327,28 @@ components:
         deleted_at:
           type: string
           description: 'The date and time when the service was deleted.'
+        status:
+          type: string
+          description: '[verified] Aggregate container status, e.g. `running:healthy`, `running:unknown` (no healthcheck defined), `exited`. Describes the running containers, not any deployment.'
+        server_status:
+          type: boolean
+          description: '[verified] Whether the server hosting this service is reachable.'
+        server:
+          $ref: '#/components/schemas/Server'
+        applications:
+          type: array
+          description: 'The application containers that make up this service.'
+          items:
+            type: object
+        databases:
+          type: array
+          description: 'The database containers that make up this service.'
+          items:
+            type: object
+        compose_parsing_version:
+          type: string
+        laravel_through_key:
+          type: integer
       type: object
     Destination:
       description: 'A Docker network destination attached to a server.'
