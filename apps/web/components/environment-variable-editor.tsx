@@ -90,7 +90,7 @@ export function EnvironmentVariableEditor({
   // List-level masking: every readable value is masked until "Reveal all".
   const [revealed, setRevealed] = useState(false)
   // Key-only search box; narrowed rows are filtered out of the list.
-  const [query, setQuery] = useState('')
+  const [searchKey, setSearchKey] = useState('')
 
   const load = useCallback(async () => {
     setLoadError(null)
@@ -109,7 +109,7 @@ export function EnvironmentVariableEditor({
   // Re-targeting the drawer to another resource must start the Env Editor
   // fresh: drop the previous resource's search query and reveal state.
   useEffect(() => {
-    setQuery('')
+    setSearchKey('')
     setRevealed(false)
   }, [resourceUuid])
 
@@ -119,11 +119,11 @@ export function EnvironmentVariableEditor({
   }, [adding, addingDraft, envs])
 
   const visibleEnvs = useMemo(
-    () => filterEnvsByKey(envs ?? [], query),
-    [envs, query],
+    () => filterEnvsByKey(envs ?? [], searchKey),
+    [envs, searchKey],
   )
 
-  const isFiltering = query.trim() !== ''
+  const isFiltering = searchKey.trim() !== ''
 
   function validateKey(
     key: string,
@@ -379,28 +379,30 @@ export function EnvironmentVariableEditor({
         </span>
       </div>
 
-      <div className="relative mt-2">
-        <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by key…"
-          aria-label="Search variables by key"
-          className="w-full rounded-md border border-border bg-background py-1 pl-7 pr-7 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-foreground/40"
-        />
-        {query && (
-          <button
-            type="button"
-            onClick={() => setQuery('')}
-            aria-label="Clear search"
-            title="Clear search"
-            className="absolute right-1.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-muted"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        )}
-      </div>
+      {envs.length > 0 && (
+        <div className="relative mt-2">
+          <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="text"
+            value={searchKey}
+            onChange={(e) => setSearchKey(e.target.value)}
+            placeholder="Search by key…"
+            aria-label="Search variables by key"
+            className="w-full rounded-md border border-border bg-background py-1 pl-7 pr-7 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-foreground/40"
+          />
+          {searchKey && (
+            <button
+              type="button"
+              onClick={() => setSearchKey('')}
+              aria-label="Clear search"
+              title="Clear search"
+              className="absolute right-1.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-muted"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      )}
 
       {envs.length === 0 && !adding && (
         <p className="mt-2 text-xs text-muted-foreground">
@@ -410,7 +412,7 @@ export function EnvironmentVariableEditor({
 
       {envs.length > 0 && visibleEnvs.length === 0 && (
         <p className="mt-2 text-xs text-muted-foreground">
-          No variables match &ldquo;{query}&rdquo;.
+          No variables match &ldquo;{searchKey}&rdquo;.
         </p>
       )}
 
@@ -470,7 +472,7 @@ export function EnvironmentVariableEditor({
           )
         })}
 
-        {adding && addingDraft && (
+        {adding && addingDraft && !isFiltering && (
           <li className="rounded-md border border-border bg-muted/30 px-2 py-1.5">
             <EnvRowForm
               draft={addingDraft}
@@ -571,7 +573,7 @@ function EnvBadges({ env }: { env: EnvironmentVariable }) {
   if (env.is_shown_once) badges.push({ label: 'once', title: 'Shown once' })
   if (badges.length === 0) return null
   return (
-    <span className="hidden shrink-0 gap-1 sm:flex">
+    <span className="shrink-0 gap-1">
       {badges.map((b) => (
         <span
           key={b.label}
@@ -736,7 +738,7 @@ function AutoGrowTextarea({
       placeholder={placeholder}
       disabled={disabled}
       rows={1}
-      className="min-h-[2.125rem] w-full resize-y rounded-md border border-border bg-background px-2 py-1 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-foreground/40 disabled:opacity-50"
+      className="min-h-[2.125rem] w-full resize-none rounded-md border border-border bg-background px-2 py-1 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-foreground/40 disabled:opacity-50"
     />
   )
 }

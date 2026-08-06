@@ -60,10 +60,10 @@ export function envSupportsPreview(type: ResourceType): boolean {
  * search box to narrow the list down to the variables worth editing; values are
  * intentionally ignored — they may be masked or hold secrets.
  */
-export function filterEnvsByKey<T extends { key: string }>(
-  envs: T[],
+export function filterEnvsByKey(
+  envs: EnvironmentVariable[],
   query: string,
-): T[] {
+): EnvironmentVariable[] {
   const q = query.trim().toLowerCase()
   if (!q) return envs
   return envs.filter((e) => e.key.toLowerCase().includes(q))
