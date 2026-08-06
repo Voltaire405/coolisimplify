@@ -45,3 +45,6 @@ npm-debug.log*
 
 # Local agent preferences
 .commandcode
+
+# Ignore local files e.g. CLAUDE.local.md, etc.
+*.local.*
