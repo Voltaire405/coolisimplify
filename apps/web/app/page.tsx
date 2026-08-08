@@ -3,6 +3,7 @@
 import Image from 'next/image'
 import { Suspense, useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useSettings } from '@/hooks/use-settings'
+import { useSidebarVisible } from '@/hooks/use-sidebar-visible'
 import {
   useProjects,
   useApplications,
@@ -64,6 +65,8 @@ import {
   CheckCircle2,
   RefreshCw,
   Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react'
 import type { ResourceType, BatchAction, RowAction } from '@/hooks/use-coolify'
 import type { DeleteOptions, Environment, Project } from '@/lib/types'
@@ -124,6 +127,7 @@ function findDrawerContext(
 
 function DashboardPage() {
   const { isConfigured } = useSettings()
+  const { sidebarVisible, toggleSidebar } = useSidebarVisible()
   const { client } = useClient()
   const {
     data: projects,
@@ -1668,17 +1672,34 @@ function DashboardPage() {
                     <RefreshCw className="h-3.5 w-3.5" />
                   </button>
                   <ThemeToggle />
+                  <button
+                    onClick={toggleSidebar}
+                    aria-pressed={sidebarVisible}
+                    title={sidebarVisible ? 'Hide projects panel' : 'Show projects panel'}
+                    aria-label={
+                      sidebarVisible ? 'Hide projects panel' : 'Show projects panel'
+                    }
+                    className="hidden h-9 w-9 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted sm:flex sm:h-7 sm:w-7"
+                  >
+                    {sidebarVisible ? (
+                      <PanelLeftClose className="h-3.5 w-3.5" />
+                    ) : (
+                      <PanelLeftOpen className="h-3.5 w-3.5" />
+                    )}
+                  </button>
                 </div>
               </div>
             </div>
           </div>
 
           <div className="mx-auto flex w-full max-w-7xl">
-            <aside className="hidden w-64 shrink-0 border-r border-border sm:block">
-              <div className="sticky top-0 max-h-screen overflow-y-auto p-3">
-                {sidebar}
-              </div>
-            </aside>
+            {sidebarVisible && (
+              <aside className="hidden w-64 shrink-0 border-r border-border sm:block">
+                <div className="sticky top-0 max-h-screen overflow-y-auto p-3">
+                  {sidebar}
+                </div>
+              </aside>
+            )}
 
             <section className="min-w-0 flex-1 px-3 py-4 sm:px-6 sm:py-6">
               {projectsError && (
