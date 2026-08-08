@@ -26,7 +26,11 @@ function database(overrides: Partial<Database>): Database {
   }
 }
 
-function renderDrawer(resource: Database, type: ResourceType = "database") {
+function renderDrawer(
+  resource: Database,
+  type: ResourceType = "database",
+  onClose: () => void = () => {}
+) {
   return render(
     <ResourceDrawer
       resource={resource}
@@ -35,7 +39,7 @@ function renderDrawer(resource: Database, type: ResourceType = "database") {
       environmentName="env"
       tab="details"
       onTabChange={() => {}}
-      onClose={() => {}}
+      onClose={onClose}
     />
   )
 }
@@ -166,5 +170,97 @@ describe("DatabaseCopyMenu gating in the resource drawer", () => {
       screen.getByRole<HTMLButtonElement>("button", { name: "Original" })
         .disabled
     ).toBe(false)
+  })
+
+  it("closes the menu when a mousedown lands outside the menu wrapper", () => {
+    renderDrawer(database({}))
+    fireEvent.click(menuTrigger())
+    expect(screen.getByRole("button", { name: "JDBC" })).toBeTruthy()
+
+    // The click-outside handler listens for mousedown on document (the panel is
+    // only rendered while open), so a mousedown on document.body must close it.
+    fireEvent.mouseDown(document.body)
+    expect(screen.queryByRole("button", { name: "JDBC" })).toBeNull()
+  })
+
+  it("toggling the trigger while open closes the menu without copying", () => {
+    renderDrawer(database({}))
+    fireEvent.click(menuTrigger())
+    expect(screen.getByRole("button", { name: "JDBC" })).toBeTruthy()
+
+    // The trigger lives inside the menu's ref, so its mousedown does not hit the
+    // click-outside handler; the click toggles the menu closed instead.
+    fireEvent.click(menuTrigger())
+    expect(screen.queryByRole("button", { name: "JDBC" })).toBeNull()
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalled()
+  })
+
+  it("renders a menu trigger for both internal and public URLs and opens each", () => {
+    renderDrawer(
+      database({
+        external_db_url: "postgres://pub:secret@example.com:5432/postgres",
+      })
+    )
+
+    // Two rows (internal + public) share the postgres SecretValue/menu path, so
+    // there are two menu triggers and each offers the four formats.
+    const triggers = screen.getAllByRole("button", { name: /copy connection url/i })
+    expect(triggers).toHaveLength(2)
+    for (const trigger of triggers) {
+      expect(trigger.getAttribute("aria-haspopup")).toBe("menu")
+    }
+
+    for (const trigger of triggers) {
+      fireEvent.click(trigger)
+      for (const label of ["Original", "JDBC", "URI", "URI corta"]) {
+        expect(screen.getByRole("button", { name: label })).toBeTruthy()
+      }
+      // Collapse the menu again so the next trigger starts from a closed state.
+      fireEvent.click(trigger)
+      expect(screen.queryByRole("button", { name: "JDBC" })).toBeNull()
+    }
+  })
+
+  it("revealing the value with the eye toggles the mask and closes the open menu", () => {
+    renderDrawer(database({}))
+    fireEvent.click(menuTrigger())
+    expect(screen.getByRole("button", { name: "JDBC" })).toBeTruthy()
+
+    // The eye button is outside the menu's ref, so a mousedown on it triggers
+    // click-outside-to-close; its own click then toggles the reveal. fireEvent
+    // fires these as separate events, mirroring a real user gesture.
+    const eye = screen.getByRole("button", { name: "Reveal value" })
+    fireEvent.mouseDown(eye)
+    fireEvent.click(eye)
+
+    // Menu closed and the masked value was replaced by the real URL.
+    expect(screen.queryByRole("button", { name: "JDBC" })).toBeNull()
+    expect(screen.queryByText("••••••••")).toBeNull()
+    expect(screen.getByText(POSTGRES_URL)).toBeTruthy()
+    // The button now offers to hide the revealed value.
+    expect(screen.getByRole("button", { name: "Hide value" })).toBeTruthy()
+  })
+})
+
+describe("DatabaseCopyMenu Escape handling", () => {
+  it("Escape closes the copy menu but keeps the drawer open", () => {
+    const onClose = vi.fn()
+    renderDrawer(database({}), "database", onClose)
+
+    fireEvent.click(menuTrigger())
+    expect(screen.getByRole("button", { name: "JDBC" })).toBeTruthy()
+
+    // Escape while the menu is open dismisses only the menu, not the drawer.
+    fireEvent.keyDown(menuTrigger(), { key: "Escape" })
+    expect(screen.queryByRole("button", { name: "JDBC" })).toBeNull()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it("Escape closes the drawer when the copy menu is closed", () => {
+    const onClose = vi.fn()
+    renderDrawer(database({}), "database", onClose)
+
+    fireEvent.keyDown(screen.getByRole("complementary"), { key: "Escape" })
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })

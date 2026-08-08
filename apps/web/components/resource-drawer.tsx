@@ -163,6 +163,16 @@ function DatabaseCopyMenu({ formats }: { formats: PostgresUrlFormats }) {
   const [copied, setCopied] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
+  // Escape closes just the menu. The menu is nested inside the resource drawer,
+  // which installs a window-level Escape listener that closes the whole drawer;
+  // stopping propagation here keeps that from firing while the menu is open.
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Escape" && open) {
+      setOpen(false)
+      e.stopPropagation()
+    }
+  }
+
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) {
@@ -186,7 +196,7 @@ function DatabaseCopyMenu({ formats }: { formats: PostgresUrlFormats }) {
   }
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative" onKeyDown={handleKeyDown}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
