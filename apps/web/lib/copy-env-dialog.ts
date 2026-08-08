@@ -12,7 +12,12 @@ import {
   sortEnvsByKey,
 } from "./envs"
 import type { ResourceWithType } from "./tree"
-import type { EnvironmentVariable, ResourceType } from "./types"
+import type {
+  Environment,
+  EnvironmentVariable,
+  Project,
+  ResourceType,
+} from "./types"
 
 /**
  * The section the destination dialog lands on: applications default to the
@@ -43,14 +48,64 @@ export function destinationKeyOptions(
 }
 
 /**
+ * A Resource plus where it lives. Two Resources of an instance can share a
+ * name, so the destination list is only unambiguous when each entry carries
+ * its Project / Environment (the Palette's sublabel).
+ */
+export interface DestinationOption extends ResourceWithType {
+  projectName: string
+  environmentName: string
+}
+
+/** `Project / Environment`, or "" when the Resource's environment is unknown. */
+export function destinationLocationLabel(option: {
+  projectName: string
+  environmentName: string
+}): string {
+  return [option.projectName, option.environmentName]
+    .filter(Boolean)
+    .join(" / ")
+}
+
+/**
+ * Pairs every Resource with the Project / Environment it belongs to, matching
+ * `environment_id` against the environment tree client-side (ADR-0002). A
+ * Resource whose environment is unknown keeps empty names rather than being
+ * dropped: it is still a valid destination.
+ */
+export function withDestinationLocations(
+  resources: ResourceWithType[],
+  projects: Project[],
+  environmentsByProject: Record<string, Environment[]>
+): DestinationOption[] {
+  const byEnvId = new Map<number, { project: Project; env: Environment }>()
+  for (const project of projects) {
+    for (const env of environmentsByProject[project.uuid] ?? []) {
+      byEnvId.set(env.id, { project, env })
+    }
+  }
+  return resources.map((r) => {
+    const envId = (r.resource as { environment_id?: number }).environment_id
+    const ctx = envId == null ? undefined : byEnvId.get(envId)
+    return {
+      ...r,
+      projectName: ctx?.project.name ?? "",
+      environmentName: ctx?.env.name ?? "",
+    }
+  })
+}
+
+/**
  * The destination Resources matching the dialog's search query, case-
  * insensitively over the same fields the Palette searches: name, type, domain
- * (fqdn) and server name (CONTEXT.md). An empty query keeps the whole list.
+ * (fqdn), server name, plus the Project / Environment the Resource lives in,
+ * which is what tells same-named Resources apart. An empty query keeps the
+ * whole list.
  */
-export function filterDestinationResources(
-  resources: ResourceWithType[],
+export function filterDestinationResources<T extends ResourceWithType>(
+  resources: T[],
   query: string
-): ResourceWithType[] {
+): T[] {
   const q = query.trim().toLowerCase()
   if (!q) return resources
   return resources.filter((r) => {
@@ -58,11 +113,17 @@ export function filterDestinationResources(
     const server = (
       r.resource as { destination?: { server?: { name?: string } } }
     ).destination?.server?.name
+    const location = destinationLocationLabel({
+      projectName: (r as { projectName?: string }).projectName ?? "",
+      environmentName:
+        (r as { environmentName?: string }).environmentName ?? "",
+    })
     return (
       (r.resource.name || "").toLowerCase().includes(q) ||
       r.type.toLowerCase().includes(q) ||
       domain.toLowerCase().includes(q) ||
-      (server ?? "").toLowerCase().includes(q)
+      (server ?? "").toLowerCase().includes(q) ||
+      location.toLowerCase().includes(q)
     )
   })
 }
@@ -79,13 +140,19 @@ export function computeCopyPlan(input: EnvCopyInput): CopyDialogVerdict {
   }
 }
 
-/** The inline success message the source's Env Editor shows after a copy. */
+/**
+ * The inline success message the source's Env Editor shows after a copy. The
+ * destination is named with its location when known, so the message points at
+ * one Resource and not at every Resource sharing that name.
+ */
 export function copySuccessMessage(
   key: string,
   destinationName: string,
-  section: EnvCopySection
+  section: EnvCopySection,
+  location = ""
 ): string {
-  return `Copied ${key} to ${destinationName} (${section})`
+  const where = location ? `${destinationName} · ${location}` : destinationName
+  return `Copied ${key} to ${where} (${section})`
 }
 
 /**

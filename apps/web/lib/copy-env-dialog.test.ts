@@ -9,9 +9,11 @@ import {
   computeCopyPlan,
   copySuccessMessage,
   defaultDestinationSection,
+  destinationLocationLabel,
   destinationKeyOptions,
   executeEnvCopy,
   filterDestinationResources,
+  withDestinationLocations,
 } from "./copy-env-dialog"
 import type { ResourceWithType } from "./tree"
 import type { EnvironmentVariable } from "./types"
@@ -175,6 +177,71 @@ describe("filterDestinationResources", () => {
   it("finds nothing when no field matches", () => {
     expect(filterDestinationResources(resources, "nomatch")).toHaveLength(0)
   })
+
+  it("matches the project and the environment the resource lives in", () => {
+    const located = withDestinationLocations(
+      resources,
+      [{ id: 1, uuid: "p1", name: "Billing" }],
+      { p1: [{ id: 10, uuid: "e1", name: "staging", project_id: 1 }] }
+    )
+    // Only the first fixture is placed in that environment.
+    located[0]!.projectName = "Billing"
+    located[0]!.environmentName = "staging"
+    expect(filterDestinationResources(located, "billing")).toHaveLength(1)
+    expect(filterDestinationResources(located, "staging")).toHaveLength(1)
+    expect(
+      filterDestinationResources(located, "Billing / staging")
+    ).toHaveLength(1)
+  })
+})
+
+describe("withDestinationLocations", () => {
+  const projects = [
+    { id: 1, uuid: "p1", name: "Billing" },
+    { id: 2, uuid: "p2", name: "Shop" },
+  ]
+  const environmentsByProject = {
+    p1: [
+      { id: 10, uuid: "e1", name: "production", project_id: 1 },
+      { id: 11, uuid: "e2", name: "staging", project_id: 1 },
+    ],
+    p2: [{ id: 20, uuid: "e3", name: "production", project_id: 2 }],
+  }
+  const resources = [
+    {
+      type: "application",
+      resource: { uuid: "a1", name: "API", environment_id: 10 },
+    },
+    {
+      type: "application",
+      resource: { uuid: "a2", name: "API", environment_id: 11 },
+    },
+    {
+      type: "service",
+      resource: { uuid: "s1", name: "API", environment_id: 20 },
+    },
+    { type: "database", resource: { uuid: "d1", name: "Orphan" } },
+  ] as unknown as ResourceWithType[]
+
+  it("tells same-named resources apart by project and environment", () => {
+    const located = withDestinationLocations(
+      resources,
+      projects,
+      environmentsByProject
+    )
+    expect(located.map(destinationLocationLabel)).toEqual([
+      "Billing / production",
+      "Billing / staging",
+      "Shop / production",
+      "",
+    ])
+  })
+
+  it("keeps a resource whose environment is unknown", () => {
+    const located = withDestinationLocations(resources, projects, {})
+    expect(located).toHaveLength(4)
+    expect(located.every((r) => destinationLocationLabel(r) === "")).toBe(true)
+  })
 })
 
 describe("copySuccessMessage", () => {
@@ -182,6 +249,12 @@ describe("copySuccessMessage", () => {
     expect(copySuccessMessage("FOO", "API", "Production")).toBe(
       "Copied FOO to API (Production)"
     )
+  })
+
+  it("names the destination's location when it is known", () => {
+    expect(
+      copySuccessMessage("FOO", "API", "Production", "Billing / staging")
+    ).toBe("Copied FOO to API · Billing / staging (Production)")
   })
 })
 

@@ -6,9 +6,11 @@ import { cn } from "@workspace/ui/lib/utils"
 import { ModalShell } from "./confirm-dialog"
 import { EnvBadges } from "./env-badges"
 import {
+  useAllEnvironments,
   useApplications,
   useClient,
   useDatabases,
+  useProjects,
   useServices,
 } from "@/hooks/use-coolify"
 import { envValue, isValueReadable } from "@/lib/envs"
@@ -16,9 +18,12 @@ import {
   computeCopyPlan,
   copySuccessMessage,
   defaultDestinationSection,
+  destinationLocationLabel,
   destinationKeyOptions,
   executeEnvCopy,
   filterDestinationResources,
+  withDestinationLocations,
+  type DestinationOption,
 } from "@/lib/copy-env-dialog"
 import type {
   EnvCopyResource,
@@ -36,9 +41,14 @@ interface CopyEnvDialogProps {
   onCopied: (message: string) => void
 }
 
-/** A selectable destination: the #7 module's Resource plus its display name. */
+/**
+ * A selectable destination: the #7 module's Resource plus how the dialog names
+ * it — its display name and the Project / Environment it lives in, without
+ * which two same-named Resources are indistinguishable.
+ */
 interface Destination extends EnvCopyResource {
   name: string
+  location: string
 }
 
 /**
@@ -60,6 +70,8 @@ export function CopyEnvDialog({
   const { data: applications } = useApplications()
   const { data: services } = useServices()
   const { data: databases } = useDatabases()
+  const { data: projects } = useProjects()
+  const { byProject: environmentsByProject } = useAllEnvironments(projects)
 
   const [search, setSearch] = useState("")
   const [destination, setDestination] = useState<Destination | null>(null)
@@ -76,7 +88,7 @@ export function CopyEnvDialog({
 
   // Flat list of every Resource of the instance, the source excluded, in the
   // app's fixed order (applications, services, databases, each alphabetical).
-  const resources = useMemo<ResourceWithType[]>(() => {
+  const resources = useMemo<DestinationOption[]>(() => {
     const all: ResourceWithType[] = [
       ...applications.map((r) => ({
         type: "application" as const,
@@ -85,27 +97,37 @@ export function CopyEnvDialog({
       ...services.map((r) => ({ type: "service" as const, resource: r })),
       ...databases.map((r) => ({ type: "database" as const, resource: r })),
     ]
-    return all
-      .filter(
+    return withDestinationLocations(
+      all.filter(
         (r) =>
           !(
             r.type === source.resource.type &&
             r.resource.uuid === source.resource.uuid
           )
-      )
-      .sort(compareResources)
-  }, [applications, services, databases, source])
+      ),
+      projects,
+      environmentsByProject
+    ).sort(compareResources)
+  }, [
+    applications,
+    services,
+    databases,
+    projects,
+    environmentsByProject,
+    source,
+  ])
 
   const filtered = useMemo(
     () => filterDestinationResources(resources, search),
     [resources, search]
   )
 
-  const selectDestination = (r: ResourceWithType) => {
+  const selectDestination = (r: DestinationOption) => {
     setDestination({
       type: r.type,
       uuid: r.resource.uuid,
       name: r.resource.name || "Unnamed",
+      location: destinationLocationLabel(r),
     })
     setSection(defaultDestinationSection(r.type, source.env.is_preview))
     setKey(source.env.key)
@@ -179,7 +201,14 @@ export function CopyEnvDialog({
     setError(null)
     try {
       await executeEnvCopy(client, destination, verdict.plan)
-      onCopied(copySuccessMessage(key.trim(), destination.name, section))
+      onCopied(
+        copySuccessMessage(
+          key.trim(),
+          destination.name,
+          section,
+          destination.location
+        )
+      )
     } catch (err) {
       setError(err instanceof Error ? err.message : "Copy failed")
     } finally {
@@ -248,7 +277,7 @@ export function CopyEnvDialog({
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search resources…"
+            placeholder="Search resources, projects, environments…"
             aria-label="Search destination resources"
             className="w-full rounded-md border border-border bg-background py-1 pr-2 pl-7 text-sm text-foreground placeholder:text-muted-foreground focus:ring-1 focus:ring-foreground/40 focus:outline-none"
           />
@@ -263,6 +292,7 @@ export function CopyEnvDialog({
           )}
           {filtered.map((r) => {
             const name = r.resource.name || "Unnamed"
+            const location = destinationLocationLabel(r)
             const selected =
               destination?.type === r.type &&
               destination.uuid === r.resource.uuid
@@ -279,8 +309,11 @@ export function CopyEnvDialog({
                       : "border-border hover:bg-muted/50"
                   )}
                 >
-                  <span className="min-w-0 flex-1 truncate text-foreground">
-                    {name}
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-foreground">{name}</span>
+                    <span className="truncate text-[10px] text-muted-foreground">
+                      {location || "Unknown location"}
+                    </span>
                   </span>
                   <span className="shrink-0 rounded border border-border px-1 py-0 text-[9px] tracking-wider text-muted-foreground uppercase">
                     {r.type}
@@ -372,6 +405,7 @@ export function CopyEnvDialog({
           {verdict.plan.action === "create" ? "Will create" : "Will replace"}{" "}
           <span className="font-mono font-semibold">{key.trim()}</span> on{" "}
           {destination.name}
+          {destination.location ? ` · ${destination.location}` : ""}
         </p>
       ) : null}
 
