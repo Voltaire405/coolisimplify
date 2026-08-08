@@ -28,5 +28,27 @@ export function useSidebarVisible() {
     setVisible((prev) => !prev)
   }, [])
 
+  // Cmd/Ctrl+B toggles the projects panel, except while typing in a field:
+  // the shortcut must not hijack the inline rename or env-var editors.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return
+      if (e.key.toLowerCase() !== 'b') return
+      const target = e.target as HTMLElement | null
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable)
+      ) {
+        return
+      }
+      e.preventDefault()
+      toggleSidebar()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [toggleSidebar])
+
   return { sidebarVisible: visible, toggleSidebar }
 }

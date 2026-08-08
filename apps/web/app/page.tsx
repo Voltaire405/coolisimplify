@@ -1675,7 +1675,11 @@ function DashboardPage() {
                   <button
                     onClick={toggleSidebar}
                     aria-pressed={sidebarVisible}
-                    title={sidebarVisible ? 'Hide projects panel' : 'Show projects panel'}
+                    title={
+                      sidebarVisible
+                        ? 'Hide projects panel (⌘B)'
+                        : 'Show projects panel (⌘B)'
+                    }
                     aria-label={
                       sidebarVisible ? 'Hide projects panel' : 'Show projects panel'
                     }

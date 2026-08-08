@@ -35,6 +35,66 @@ describe('reading', () => {
   })
 })
 
+describe('keyboard shortcut', () => {
+  it('toggles with Cmd+B', () => {
+    const { result } = renderHook(() => useSidebarVisible())
+
+    act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'b', metaKey: true, bubbles: true }),
+      )
+    })
+    expect(result.current.sidebarVisible).toBe(false)
+  })
+
+  it('toggles with Ctrl+B', () => {
+    const { result } = renderHook(() => useSidebarVisible())
+
+    act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'B', ctrlKey: true, bubbles: true }),
+      )
+    })
+    expect(result.current.sidebarVisible).toBe(false)
+  })
+
+  it('ignores the shortcut while typing in an input', () => {
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    input.focus()
+    const { result } = renderHook(() => useSidebarVisible())
+
+    act(() => {
+      input.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'b', metaKey: true, bubbles: true }),
+      )
+    })
+    expect(result.current.sidebarVisible).toBe(true)
+    input.remove()
+  })
+
+  it('ignores the shortcut without Cmd or Ctrl', () => {
+    const { result } = renderHook(() => useSidebarVisible())
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', bubbles: true }))
+    })
+    expect(result.current.sidebarVisible).toBe(true)
+  })
+
+  it('stops listening after unmount', () => {
+    const { result, unmount } = renderHook(() => useSidebarVisible())
+    unmount()
+
+    act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'b', metaKey: true, bubbles: true }),
+      )
+    })
+    expect(result.current.sidebarVisible).toBe(true)
+  })
+})
+
 describe('writing', () => {
   it('toggles and persists so the choice survives a reload', () => {
     const { result } = renderHook(() => useSidebarVisible())
