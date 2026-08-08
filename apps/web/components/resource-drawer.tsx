@@ -15,6 +15,7 @@ import {
   Pencil,
   Eye,
   EyeOff,
+  Copy,
 } from "lucide-react"
 import { CopyButton } from "./copy-button"
 import { StatusIndicator } from "./status-indicator"
@@ -33,7 +34,11 @@ import {
   configEditPayload,
   type EditableConfig,
 } from "@/lib/app-detail"
-import { databaseConnectionUrls } from "@/lib/database-detail"
+import {
+  databaseConnectionUrls,
+  postgresUrlFormats,
+  type PostgresUrlFormats,
+} from "@/lib/database-detail"
 import {
   classifyResourceState,
   RESOURCE_STATE_LABEL,
@@ -94,9 +99,17 @@ function Value({ children }: { children: React.ReactNode }) {
 /**
  * A masked, copyable value (used for database connection URLs). Hidden by
  * default behind an eye toggle; the clipboard button always copies the real
- * value, whether or not it is revealed.
+ * value, whether or not it is revealed. When `formats` is supplied (postgres
+ * only) the copy button becomes a menu that offers each rendering; otherwise
+ * it stays a plain single-format CopyButton.
  */
-function SecretValue({ value }: { value: string }) {
+function SecretValue({
+  value,
+  formats,
+}: {
+  value: string
+  formats?: PostgresUrlFormats | null
+}) {
   const [revealed, setRevealed] = useState(false)
   return (
     <span className="flex min-w-0 items-center gap-1.5">
@@ -116,8 +129,108 @@ function SecretValue({ value }: { value: string }) {
           <Eye className="h-3.5 w-3.5" />
         )}
       </button>
-      <CopyButton value={value} label="Copy connection URL" />
+      {formats ? (
+        <DatabaseCopyMenu formats={formats} />
+      ) : (
+        <CopyButton value={value} label="Copy connection URL" />
+      )}
     </span>
+  )
+}
+
+/** Copy formats offered for a Postgres connection URL, in display order. */
+const POSTGRES_COPY_FORMATS: ReadonlyArray<{
+  label: string
+  key: keyof PostgresUrlFormats
+}> = [
+  { label: "Original", key: "original" },
+  { label: "JDBC", key: "jdbc" },
+  { label: "URI", key: "uri" },
+  { label: "URI corta", key: "shortUri" },
+]
+
+/**
+ * Postgres-only copy menu: a trigger that opens a small menu listing every
+ * connection-URL rendering (Original / JDBC / URI / URI corta). Selecting one
+ * copies that format, closes the menu, and swaps the trigger to a brief
+ * "Copied" check, mirroring CopyButton's feedback. Follows the repo's only
+ * menu pattern (ContextMenu): a `relative` wrapper, an absolutely positioned
+ * `right-0 top-full` panel, and click-outside-to-close. Derived formats that
+ * could not be computed (non-postgres input) render disabled.
+ */
+function DatabaseCopyMenu({ formats }: { formats: PostgresUrlFormats }) {
+  const [open, setOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    if (open) {
+      document.addEventListener("mousedown", handleClickOutside)
+      return () => document.removeEventListener("mousedown", handleClickOutside)
+    }
+  }, [open])
+
+  async function handleCopy(value: string) {
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      // Clipboard may be unavailable (e.g. non-secure context); ignore.
+    }
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={copied ? "Copied" : "Copy connection URL"}
+        title={copied ? "Copied" : "Copy connection URL"}
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
+      >
+        {copied ? (
+          <Check className="h-3.5 w-3.5 text-foreground" />
+        ) : (
+          <Copy className="h-3.5 w-3.5" />
+        )}
+      </button>
+      {open && (
+        <div className="absolute top-full right-0 z-30 mt-1 w-44 rounded-md border border-border bg-popover shadow-sm">
+          <div className="py-1">
+            {POSTGRES_COPY_FORMATS.map(({ label, key }) => {
+              const value = formats[key]
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  disabled={value == null}
+                  onClick={() => {
+                    if (value != null) void handleCopy(value)
+                    setOpen(false)
+                  }}
+                  className={cn(
+                    "block w-full px-3 py-2 text-left text-sm transition-colors",
+                    value == null
+                      ? "pointer-events-none opacity-40"
+                      : "text-popover-foreground hover:bg-muted"
+                  )}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -366,10 +479,13 @@ export function ResourceDrawer({
 
   // Database connection URLs are masked by default (SecretValue) and only shown
   // when Coolify supplied them. The public one is omitted when not exposed.
+  // Postgres rows offer multiple copy formats (Original/JDBC/URI/URI corta);
+  // every other engine keeps the plain single-format copy button.
   const dbUrls =
     type === "database"
       ? databaseConnectionUrls(resource as DatabaseResource)
       : null
+  const dbIsPostgres = dbUrls?.type === "postgresql"
 
   return (
     <div
@@ -468,12 +584,22 @@ export function ResourceDrawer({
               icon={Database}
               label={`${dbUrls.label} URL (internal)`}
             >
-              <SecretValue value={dbUrls.internalUrl} />
+              <SecretValue
+                value={dbUrls.internalUrl}
+                formats={
+                  dbIsPostgres ? postgresUrlFormats(dbUrls.internalUrl) : null
+                }
+              />
             </PropertyRow>
           )}
           {type === "database" && dbUrls?.label && dbUrls.publicUrl && (
             <PropertyRow icon={Database} label={`${dbUrls.label} URL (public)`}>
-              <SecretValue value={dbUrls.publicUrl} />
+              <SecretValue
+                value={dbUrls.publicUrl}
+                formats={
+                  dbIsPostgres ? postgresUrlFormats(dbUrls.publicUrl) : null
+                }
+              />
             </PropertyRow>
           )}
 

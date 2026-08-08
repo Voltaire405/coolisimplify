@@ -10,6 +10,7 @@ describe("databaseConnectionUrls", () => {
     })
     expect(urls).toEqual({
       label: "Postgres",
+      type: "postgresql",
       internalUrl: "postgres://postgres:secret@abc123:5432/postgres",
       publicUrl: "postgres://postgres:secret@203.0.113.5:5432/postgres",
     })

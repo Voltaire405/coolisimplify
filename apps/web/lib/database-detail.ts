@@ -114,6 +114,11 @@ export function postgresUrlFormats(url: string): PostgresUrlFormats {
 export interface DatabaseConnectionUrls {
   /** Type label, null when the image does not map to a known database type. */
   label: string | null
+  /**
+   * Detected engine type, null when the image does not map to a known
+   * database type. Used to gate postgres-only copy formats in the UI.
+   */
+  type: DatabaseType | null
   internalUrl: string | null
   /** The public URL; null when the database is not exposed to the internet. */
   publicUrl: string | null
@@ -133,6 +138,7 @@ export function databaseConnectionUrls(db: {
   const type = detectDatabaseType(db.image)
   return {
     label: type ? DATABASE_TYPE_LABEL[type] : null,
+    type,
     internalUrl: db.internal_db_url?.trim() || null,
     publicUrl: db.external_db_url?.trim() || null,
   }
