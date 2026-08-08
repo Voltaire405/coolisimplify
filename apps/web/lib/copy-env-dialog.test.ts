@@ -193,6 +193,54 @@ describe("filterDestinationResources", () => {
       filterDestinationResources(located, "Billing / staging")
     ).toHaveLength(1)
   })
+
+  it("narrows to the one resource whose words span name and project", () => {
+    // The real case: `Core` in `Gedsys 2 Maceo` vs `Core` in `Gedsys 2 Yolombo`.
+    const located = [
+      {
+        type: "application",
+        resource: { uuid: "c1", name: "Core" },
+        projectName: "Gedsys 2 Maceo",
+        environmentName: "production",
+      },
+      {
+        type: "application",
+        resource: { uuid: "c2", name: "Core" },
+        projectName: "Gedsys 2 Yolombo",
+        environmentName: "production",
+      },
+      {
+        type: "application",
+        resource: { uuid: "w1", name: "Web" },
+        projectName: "Gedsys 2 Maceo",
+        environmentName: "production",
+      },
+    ] as unknown as ResourceWithType[]
+
+    expect(filterDestinationResources(located, "core")).toHaveLength(2)
+    expect(filterDestinationResources(located, "maceo")).toHaveLength(2)
+    const exact = filterDestinationResources(located, "core maceo")
+    expect(exact).toHaveLength(1)
+    expect(exact[0]!.resource.uuid).toBe("c1")
+  })
+
+  it("ignores word order and extra whitespace", () => {
+    const located = [
+      {
+        type: "application",
+        resource: { uuid: "c1", name: "Core API" },
+        projectName: "Gedsys 2 Maceo",
+        environmentName: "staging",
+      },
+    ] as unknown as ResourceWithType[]
+    expect(filterDestinationResources(located, "maceo core")).toHaveLength(1)
+    expect(
+      filterDestinationResources(located, "  core   staging ")
+    ).toHaveLength(1)
+    expect(filterDestinationResources(located, "core production")).toHaveLength(
+      0
+    )
+  })
 })
 
 describe("withDestinationLocations", () => {

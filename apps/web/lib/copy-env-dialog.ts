@@ -96,35 +96,44 @@ export function withDestinationLocations(
 }
 
 /**
+ * Everything about a destination the search reads, lower-cased: the Resource's
+ * name, its type, its domain and server, and the Project / Environment it
+ * lives in.
+ */
+function searchHaystack(r: ResourceWithType): string {
+  const domain = (r.resource as { fqdn?: string | null }).fqdn ?? ""
+  const server =
+    (r.resource as { destination?: { server?: { name?: string } } }).destination
+      ?.server?.name ?? ""
+  const location = destinationLocationLabel({
+    projectName: (r as { projectName?: string }).projectName ?? "",
+    environmentName: (r as { environmentName?: string }).environmentName ?? "",
+  })
+  return [r.resource.name || "", r.type, domain, server, location]
+    .join(" ")
+    .toLowerCase()
+}
+
+/**
  * The destination Resources matching the dialog's search query, case-
  * insensitively over the same fields the Palette searches: name, type, domain
  * (fqdn), server name, plus the Project / Environment the Resource lives in,
- * which is what tells same-named Resources apart. An empty query keeps the
- * whole list.
+ * which is what tells same-named Resources apart.
+ *
+ * The query is split into words and every word must match somewhere, but not
+ * necessarily in the same field: "core maceo" finds the Resource named `Core`
+ * of the project `Gedsys 2 Maceo`, which no single-field search can do. An
+ * empty query keeps the whole list.
  */
 export function filterDestinationResources<T extends ResourceWithType>(
   resources: T[],
   query: string
 ): T[] {
-  const q = query.trim().toLowerCase()
-  if (!q) return resources
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean)
+  if (terms.length === 0) return resources
   return resources.filter((r) => {
-    const domain = (r.resource as { fqdn?: string | null }).fqdn ?? ""
-    const server = (
-      r.resource as { destination?: { server?: { name?: string } } }
-    ).destination?.server?.name
-    const location = destinationLocationLabel({
-      projectName: (r as { projectName?: string }).projectName ?? "",
-      environmentName:
-        (r as { environmentName?: string }).environmentName ?? "",
-    })
-    return (
-      (r.resource.name || "").toLowerCase().includes(q) ||
-      r.type.toLowerCase().includes(q) ||
-      domain.toLowerCase().includes(q) ||
-      (server ?? "").toLowerCase().includes(q) ||
-      location.toLowerCase().includes(q)
-    )
+    const haystack = searchHaystack(r)
+    return terms.every((t) => haystack.includes(t))
   })
 }
 
