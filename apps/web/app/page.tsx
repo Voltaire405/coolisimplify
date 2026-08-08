@@ -1694,7 +1694,7 @@ function DashboardPage() {
 
           <div className="mx-auto flex w-full">
             {sidebarVisible && (
-              <aside className="hidden w-64 shrink-0 border-r border-border sm:block">
+              <aside className="hidden w-64 shrink-0 border-r border-border sm:block lg:w-1/4">
                 <div className="sticky top-0 max-h-screen overflow-y-auto p-3">
                   {sidebar}
                 </div>
@@ -1797,7 +1797,7 @@ function DashboardPage() {
             </section>
 
             {drawerResource && (
-              <aside className="fixed inset-y-0 right-0 z-40 w-full max-w-md overflow-y-auto border-l border-border bg-background shadow-xl lg:sticky lg:top-0 lg:z-auto lg:max-h-screen lg:w-[26rem] lg:max-w-none lg:shrink-0 lg:shadow-none">
+              <aside className="fixed inset-y-0 right-0 z-40 w-full max-w-md overflow-y-auto border-l border-border bg-background shadow-xl lg:sticky lg:top-0 lg:z-auto lg:max-h-screen lg:w-1/4 lg:min-w-[26rem] lg:max-w-none lg:shrink-0 lg:shadow-none">
                 <ResourceDrawer
                   resource={drawerResource.resource}
                   type={drawerResource.type}
