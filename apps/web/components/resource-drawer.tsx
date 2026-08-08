@@ -255,6 +255,24 @@ function DatabaseCopyMenu({ formats }: { formats: PostgresUrlFormats }) {
   // holds focus when the menu opens.
   function handleMenuKeyDown(e: React.KeyboardEvent) {
     if (enabledKeys.length === 0) return
+    // The panel (role="menu") holds focus until the first arrow lands on a
+    // choice. At that point currentKey is null, but activeKey already defaults
+    // to the first enabled choice, so a naive cursor would make the first
+    // ArrowDown skip it (and the first ArrowUp skip the last). Treat the
+    // just-opened state as sitting "before" the first choice: ArrowDown/Home
+    // reach the first enabled choice and ArrowUp/End reach the last one.
+    if (currentKey == null) {
+      if (e.key === "ArrowDown" || e.key === "Home") {
+        e.preventDefault()
+        focusItem(enabledKeys[0]!)
+        return
+      }
+      if (e.key === "ArrowUp" || e.key === "End") {
+        e.preventDefault()
+        focusItem(enabledKeys[enabledKeys.length - 1]!)
+        return
+      }
+    }
     const cursor = Math.max(enabledKeys.indexOf(activeKey ?? ""), 0)
     switch (e.key) {
       case "ArrowDown":

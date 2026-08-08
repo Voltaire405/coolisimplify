@@ -303,8 +303,17 @@ describe("DatabaseCopyMenu ARIA menu widget", () => {
     fireEvent.click(menuTrigger())
     const panel = screen.getByRole("menu")
 
-    // ArrowDown from the first choice moves to the next.
+    // The first ArrowDown from the focused panel lands on the first choice
+    // (it must not skip "Original").
     fireEvent.keyDown(panel, { key: "ArrowDown" })
+    expect(screen.getByRole("menuitem", { name: "Original" })).toBe(
+      document.activeElement
+    )
+
+    // ArrowDown moves to the next.
+    fireEvent.keyDown(screen.getByRole("menuitem", { name: "Original" }), {
+      key: "ArrowDown",
+    })
     expect(screen.getByRole("menuitem", { name: "JDBC" })).toBe(
       document.activeElement
     )
