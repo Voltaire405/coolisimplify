@@ -1630,7 +1630,7 @@ function DashboardPage() {
       ) : (
         <>
           <div className="border-b border-border">
-            <div className="mx-auto max-w-7xl px-3 py-3 pl-14 sm:px-4 sm:py-4 sm:pl-16">
+            <div className="mx-auto px-3 py-3 pl-14 sm:px-4 sm:py-4 sm:pl-16">
               <div className="flex items-start justify-between gap-3 sm:items-center">
                 <div className="flex min-w-0 items-start gap-3 sm:items-center">
                   <Image
@@ -1692,7 +1692,7 @@ function DashboardPage() {
             </div>
           </div>
 
-          <div className="mx-auto flex w-full max-w-7xl">
+          <div className="mx-auto flex w-full">
             {sidebarVisible && (
               <aside className="hidden w-64 shrink-0 border-r border-border sm:block">
                 <div className="sticky top-0 max-h-screen overflow-y-auto p-3">
