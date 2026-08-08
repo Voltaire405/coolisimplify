@@ -234,8 +234,8 @@ function DatabaseCopyMenu({ formats }: { formats: PostgresUrlFormats }) {
   }, [open])
 
   // Resolves true when the write succeeded. On failure the menu stays open so
-  // the user can retry (unlike CopyButton, which swallows the error because the
-  // button remains available); a transient message surfaces the failure.
+  // the user can retry; a transient message surfaces the failure. CopyButton
+  // surfaces its own transient failure the same way (no false "Copied" flash).
   async function handleCopy(value: string): Promise<boolean> {
     try {
       await navigator.clipboard.writeText(value)
