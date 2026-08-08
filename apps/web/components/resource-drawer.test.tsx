@@ -85,11 +85,11 @@ describe("DatabaseCopyMenu gating in the resource drawer", () => {
     expect(copy.getAttribute("aria-haspopup")).toBeNull()
   })
 
-  it("opens the menu with Original/JDBC/URI/URI corta in that order", () => {
+  it("opens the menu with Original/JDBC/URI/Short URI in that order", () => {
     renderDrawer(database({}))
     fireEvent.click(menuTrigger())
 
-    const labels = ["Original", "JDBC", "URI", "URI corta"]
+    const labels = ["Original", "JDBC", "URI", "Short URI"]
     const buttons = labels.map((label) =>
       screen.getByRole("menuitem", { name: label })
     )
@@ -131,7 +131,7 @@ describe("DatabaseCopyMenu gating in the resource drawer", () => {
     const expectations: Array<[string, string]> = [
       ["Original", POSTGRES_URL],
       ["URI", "postgresql://user:pass@abc123:5432/postgres"],
-      ["URI corta", POSTGRES_URL],
+      ["Short URI", POSTGRES_URL],
       [
         "JDBC",
         "jdbc:postgresql://abc123:5432/postgres?user=user&password=pass",
@@ -192,7 +192,7 @@ describe("DatabaseCopyMenu gating in the resource drawer", () => {
     renderDrawer(database({ internal_db_url: "not a url : : //" }))
     fireEvent.click(menuTrigger())
 
-    for (const label of ["JDBC", "URI", "URI corta"]) {
+    for (const label of ["JDBC", "URI", "Short URI"]) {
       const item = screen.getByRole<HTMLButtonElement>("menuitem", {
         name: label,
       })
@@ -248,7 +248,7 @@ describe("DatabaseCopyMenu gating in the resource drawer", () => {
 
     for (const trigger of triggers) {
       fireEvent.click(trigger)
-      for (const label of ["Original", "JDBC", "URI", "URI corta"]) {
+      for (const label of ["Original", "JDBC", "URI", "Short URI"]) {
         expect(screen.getByRole("menuitem", { name: label })).toBeTruthy()
       }
       // Collapse the menu again so the next trigger starts from a closed state.
@@ -315,7 +315,7 @@ describe("DatabaseCopyMenu ARIA menu widget", () => {
       "Original",
       "JDBC",
       "URI",
-      "URI corta",
+      "Short URI",
     ])
 
     // The trigger points aria-controls at the panel it actually opens, so the
@@ -361,12 +361,12 @@ describe("DatabaseCopyMenu ARIA menu widget", () => {
 
     // End jumps to the last choice.
     fireEvent.keyDown(panel, { key: "End" })
-    expect(screen.getByRole("menuitem", { name: "URI corta" })).toBe(
+    expect(screen.getByRole("menuitem", { name: "Short URI" })).toBe(
       document.activeElement
     )
 
     // Home jumps back to the first choice.
-    fireEvent.keyDown(screen.getByRole("menuitem", { name: "URI corta" }), {
+    fireEvent.keyDown(screen.getByRole("menuitem", { name: "Short URI" }), {
       key: "Home",
     })
     expect(screen.getByRole("menuitem", { name: "Original" })).toBe(
@@ -375,7 +375,7 @@ describe("DatabaseCopyMenu ARIA menu widget", () => {
 
     // Only the current choice is in the tab order (roving tabindex).
     expect(screen.getByRole("menuitem", { name: "Original" }).tabIndex).toBe(0)
-    for (const name of ["JDBC", "URI", "URI corta"]) {
+    for (const name of ["JDBC", "URI", "Short URI"]) {
       expect(screen.getByRole("menuitem", { name }).tabIndex).toBe(-1)
     }
   })

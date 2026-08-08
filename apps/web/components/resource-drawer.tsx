@@ -146,12 +146,12 @@ const POSTGRES_COPY_FORMATS: ReadonlyArray<{
   { label: "Original", key: "original" },
   { label: "JDBC", key: "jdbc" },
   { label: "URI", key: "uriLong" },
-  { label: "URI corta", key: "uri" },
+  { label: "Short URI", key: "uri" },
 ]
 
 /**
  * Postgres-only copy menu: a trigger that opens a small menu listing every
- * connection-URL rendering (Original / JDBC / URI / URI corta). Selecting one
+ * connection-URL rendering (Original / JDBC / URI / Short URI). Selecting one
  * copies that format, closes the menu, and swaps the trigger to a brief
  * "Copied" check, mirroring CopyButton's feedback. Follows the repo's only
  * menu pattern (ContextMenu): a `relative` wrapper, an absolutely positioned
@@ -633,7 +633,7 @@ export function ResourceDrawer({
 
   // Database connection URLs are masked by default (SecretValue) and only shown
   // when Coolify supplied them. The public one is omitted when not exposed.
-  // Postgres rows offer multiple copy formats (Original/JDBC/URI/URI corta);
+  // Postgres rows offer multiple copy formats (Original/JDBC/URI/Short URI);
   // every other engine keeps the plain single-format copy button.
   const dbUrls =
     type === "database"

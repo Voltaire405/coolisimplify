@@ -23,9 +23,10 @@ export const DATABASE_TYPE_LABEL: Record<DatabaseType, string> = {
  * `user`/`password` query params, and `original` is the URL byte-for-byte as
  * Coolify provided it.
  *
- * NOTE on labels: the Details tab labels these "URI corta" for the short form
+ * NOTE on labels: the Details tab labels these "Short URI" for the short form
  * and "URI" for the long form, so the UI label and the `uri` key are inverted
- * by design ("corta" = Spanish for "short"). Read `uri` as the SHORT scheme.
+ * by design ("short" modifies the scheme, not the key). Read `uri` as the
+ * SHORT scheme.
  */
 export type PostgresUrlFormat = "original" | "jdbc" | "uri" | "uri-long"
 
@@ -33,7 +34,7 @@ export type PostgresUrlFormat = "original" | "jdbc" | "uri" | "uri-long"
 export interface PostgresUrlFormats {
   original: string
   jdbc: string | null
-  /** The short `postgres://` scheme (UI label "URI corta"). */
+  /** The short `postgres://` scheme (UI label "Short URI"). */
   uri: string | null
   /** The long `postgresql://` scheme (UI label "URI"). */
   uriLong: string | null
