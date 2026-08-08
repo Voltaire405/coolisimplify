@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useId, useMemo, useRef, useState } from "react"
 import {
   Box,
   Workflow,
@@ -157,11 +157,58 @@ const POSTGRES_COPY_FORMATS: ReadonlyArray<{
  * menu pattern (ContextMenu): a `relative` wrapper, an absolutely positioned
  * `right-0 top-full` panel, and click-outside-to-close. Derived formats that
  * could not be computed (non-postgres input) render disabled.
+ *
+ * Accessibility contract: this is a real ARIA menu widget (the trigger
+ * advertises `aria-haspopup="menu"`), so the panel is `role="menu"`, each
+ * choice is `role="menuitem"` with `aria-disabled` when it could not be
+ * derived, the panel is focused on open, and ArrowUp/ArrowDown/Home/End move
+ * focus with a roving tabindex. This delivers exactly the widget the trigger
+ * promises (unlike ContextMenu, which keeps `aria-haspopup="menu"` without
+ * `role="menu"`).
  */
 function DatabaseCopyMenu({ formats }: { formats: PostgresUrlFormats }) {
   const [open, setOpen] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [currentKey, setCurrentKey] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const panelId = useId()
+
+  // The roving focus only lands on choices that can actually be copied.
+  const enabledKeys = useMemo<string[]>(
+    () =>
+      POSTGRES_COPY_FORMATS.map(({ key }) => key).filter(
+        (key) => formats[key] != null
+      ),
+    [formats]
+  )
+
+  // Focus the panel (not the trigger) when the menu opens so keyboard users
+  // land inside the widget and can arrow through it. The focus cursor is
+  // reset in the trigger's onClick (an event handler) rather than here, so this
+  // effect only touches the DOM.
+  useEffect(() => {
+    if (open) {
+      panelRef.current?.focus()
+    }
+  }, [open])
+
+  // Focus returns to the trigger whenever the menu closes, per the ARIA APG
+  // menu button pattern. Track the previous open state so the initial mount
+  // (open === false) does not steal focus into the trigger.
+  const wasOpenRef = useRef(open)
+  useEffect(() => {
+    const wasOpen = wasOpenRef.current
+    wasOpenRef.current = open
+    if (wasOpen && !open) {
+      triggerRef.current?.focus()
+    }
+  }, [open])
+
+  // The choice that is currently the roving tab stop: the last one focused, or
+  // the first enabled choice when the menu just opened.
+  const activeKey = currentKey ?? enabledKeys[0] ?? null
 
   // Escape closes just the menu. The menu is nested inside the resource drawer,
   // which installs a window-level Escape listener that closes the whole drawer;
@@ -195,13 +242,54 @@ function DatabaseCopyMenu({ formats }: { formats: PostgresUrlFormats }) {
     }
   }
 
+  function focusItem(key: string) {
+    setCurrentKey(key)
+    const item = panelRef.current?.querySelector(
+      `[data-key="${key}"]`
+    ) as HTMLElement | null
+    item?.focus()
+  }
+
+  // Roving focus for the menu: ArrowUp/ArrowDown move by one enabled choice
+  // (wrapping), Home/End jump to the first/last. Handled on the panel, which
+  // holds focus when the menu opens.
+  function handleMenuKeyDown(e: React.KeyboardEvent) {
+    if (enabledKeys.length === 0) return
+    const cursor = Math.max(enabledKeys.indexOf(activeKey ?? ""), 0)
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault()
+        focusItem(enabledKeys[(cursor + 1) % enabledKeys.length]!)
+        break
+      case "ArrowUp":
+        e.preventDefault()
+        focusItem(
+          enabledKeys[(cursor - 1 + enabledKeys.length) % enabledKeys.length]!
+        )
+        break
+      case "Home":
+        e.preventDefault()
+        focusItem(enabledKeys[0]!)
+        break
+      case "End":
+        e.preventDefault()
+        focusItem(enabledKeys[enabledKeys.length - 1]!)
+        break
+    }
+  }
+
   return (
     <div ref={ref} className="relative" onKeyDown={handleKeyDown}>
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        ref={triggerRef}
+        onClick={() => {
+          if (!open) setCurrentKey(null)
+          setOpen((o) => !o)
+        }}
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-controls={open ? panelId : undefined}
         aria-label={copied ? "Copied" : "Copy connection URL"}
         title={copied ? "Copied" : "Copy connection URL"}
         className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
@@ -213,7 +301,15 @@ function DatabaseCopyMenu({ formats }: { formats: PostgresUrlFormats }) {
         )}
       </button>
       {open && (
-        <div className="absolute top-full right-0 z-30 mt-1 w-44 rounded-md border border-border bg-popover shadow-sm">
+        <div
+          ref={panelRef}
+          id={panelId}
+          role="menu"
+          aria-label="Copy connection URL formats"
+          tabIndex={-1}
+          onKeyDown={handleMenuKeyDown}
+          className="absolute top-full right-0 z-30 mt-1 w-44 rounded-md border border-border bg-popover shadow-sm"
+        >
           <div className="py-1">
             {POSTGRES_COPY_FORMATS.map(({ label, key }) => {
               const value = formats[key]
@@ -221,7 +317,11 @@ function DatabaseCopyMenu({ formats }: { formats: PostgresUrlFormats }) {
                 <button
                   key={key}
                   type="button"
-                  disabled={value == null}
+                  role="menuitem"
+                  data-key={key}
+                  tabIndex={activeKey === key ? 0 : -1}
+                  aria-disabled={value == null}
+                  onFocus={() => setCurrentKey(key)}
                   onClick={() => {
                     if (value != null) void handleCopy(value)
                     setOpen(false)

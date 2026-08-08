@@ -91,7 +91,7 @@ describe("DatabaseCopyMenu gating in the resource drawer", () => {
 
     const labels = ["Original", "JDBC", "URI", "URI corta"]
     const buttons = labels.map((label) =>
-      screen.getByRole("button", { name: label })
+      screen.getByRole("menuitem", { name: label })
     )
     expect(buttons.map((b) => b.textContent)).toEqual(labels)
   })
@@ -101,14 +101,14 @@ describe("DatabaseCopyMenu gating in the resource drawer", () => {
     fireEvent.click(menuTrigger())
 
     const trigger = menuTrigger()
-    const jdbc = screen.getByRole("button", { name: "JDBC" })
+    const jdbc = screen.getByRole("menuitem", { name: "JDBC" })
     await act(async () => {
       fireEvent.click(jdbc)
       await Promise.resolve()
     })
 
     // Menu closed and the JDBC rendering was written to the clipboard.
-    expect(screen.queryByRole("button", { name: "JDBC" })).toBeNull()
+    expect(screen.queryByRole("menuitem", { name: "JDBC" })).toBeNull()
     expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1)
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
       "jdbc:postgresql://abc123:5432/postgres?user=user&password=pass"
@@ -140,12 +140,12 @@ describe("DatabaseCopyMenu gating in the resource drawer", () => {
     for (const [label, expected] of expectations) {
       fireEvent.click(menuTrigger())
       await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: label }))
+        fireEvent.click(screen.getByRole("menuitem", { name: label }))
         await Promise.resolve()
       })
       expect(writeText).toHaveBeenLastCalledWith(expected)
       // Menu closes after every selection.
-      expect(screen.queryByRole("button", { name: label })).toBeNull()
+      expect(screen.queryByRole("menuitem", { name: label })).toBeNull()
       // Reset the Copied check so the next loop sees an idle trigger.
       await act(async () => {
         vi.advanceTimersByTime(1500)
@@ -160,38 +160,39 @@ describe("DatabaseCopyMenu gating in the resource drawer", () => {
     fireEvent.click(menuTrigger())
 
     for (const label of ["JDBC", "URI", "URI corta"]) {
-      const button = screen.getByRole<HTMLButtonElement>("button", {
+      const item = screen.getByRole<HTMLButtonElement>("menuitem", {
         name: label,
       })
-      expect(button.disabled).toBe(true)
-      expect(button.className).toContain("opacity-40")
+      expect(item.getAttribute("aria-disabled")).toBe("true")
+      expect(item.className).toContain("opacity-40")
     }
     expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Original" })
-        .disabled
-    ).toBe(false)
+      screen
+        .getByRole<HTMLButtonElement>("menuitem", { name: "Original" })
+        .getAttribute("aria-disabled")
+    ).toBe("false")
   })
 
   it("closes the menu when a mousedown lands outside the menu wrapper", () => {
     renderDrawer(database({}))
     fireEvent.click(menuTrigger())
-    expect(screen.getByRole("button", { name: "JDBC" })).toBeTruthy()
+    expect(screen.getByRole("menuitem", { name: "JDBC" })).toBeTruthy()
 
     // The click-outside handler listens for mousedown on document (the panel is
     // only rendered while open), so a mousedown on document.body must close it.
     fireEvent.mouseDown(document.body)
-    expect(screen.queryByRole("button", { name: "JDBC" })).toBeNull()
+    expect(screen.queryByRole("menuitem", { name: "JDBC" })).toBeNull()
   })
 
   it("toggling the trigger while open closes the menu without copying", () => {
     renderDrawer(database({}))
     fireEvent.click(menuTrigger())
-    expect(screen.getByRole("button", { name: "JDBC" })).toBeTruthy()
+    expect(screen.getByRole("menuitem", { name: "JDBC" })).toBeTruthy()
 
     // The trigger lives inside the menu's ref, so its mousedown does not hit the
     // click-outside handler; the click toggles the menu closed instead.
     fireEvent.click(menuTrigger())
-    expect(screen.queryByRole("button", { name: "JDBC" })).toBeNull()
+    expect(screen.queryByRole("menuitem", { name: "JDBC" })).toBeNull()
     expect(navigator.clipboard.writeText).not.toHaveBeenCalled()
   })
 
@@ -204,7 +205,9 @@ describe("DatabaseCopyMenu gating in the resource drawer", () => {
 
     // Two rows (internal + public) share the postgres SecretValue/menu path, so
     // there are two menu triggers and each offers the four formats.
-    const triggers = screen.getAllByRole("button", { name: /copy connection url/i })
+    const triggers = screen.getAllByRole("button", {
+      name: /copy connection url/i,
+    })
     expect(triggers).toHaveLength(2)
     for (const trigger of triggers) {
       expect(trigger.getAttribute("aria-haspopup")).toBe("menu")
@@ -213,18 +216,18 @@ describe("DatabaseCopyMenu gating in the resource drawer", () => {
     for (const trigger of triggers) {
       fireEvent.click(trigger)
       for (const label of ["Original", "JDBC", "URI", "URI corta"]) {
-        expect(screen.getByRole("button", { name: label })).toBeTruthy()
+        expect(screen.getByRole("menuitem", { name: label })).toBeTruthy()
       }
       // Collapse the menu again so the next trigger starts from a closed state.
       fireEvent.click(trigger)
-      expect(screen.queryByRole("button", { name: "JDBC" })).toBeNull()
+      expect(screen.queryByRole("menuitem", { name: "JDBC" })).toBeNull()
     }
   })
 
   it("revealing the value with the eye toggles the mask and closes the open menu", () => {
     renderDrawer(database({}))
     fireEvent.click(menuTrigger())
-    expect(screen.getByRole("button", { name: "JDBC" })).toBeTruthy()
+    expect(screen.getByRole("menuitem", { name: "JDBC" })).toBeTruthy()
 
     // The eye button is outside the menu's ref, so a mousedown on it triggers
     // click-outside-to-close; its own click then toggles the reveal. fireEvent
@@ -234,7 +237,7 @@ describe("DatabaseCopyMenu gating in the resource drawer", () => {
     fireEvent.click(eye)
 
     // Menu closed and the masked value was replaced by the real URL.
-    expect(screen.queryByRole("button", { name: "JDBC" })).toBeNull()
+    expect(screen.queryByRole("menuitem", { name: "JDBC" })).toBeNull()
     expect(screen.queryByText("••••••••")).toBeNull()
     expect(screen.getByText(POSTGRES_URL)).toBeTruthy()
     // The button now offers to hide the revealed value.
@@ -248,11 +251,11 @@ describe("DatabaseCopyMenu Escape handling", () => {
     renderDrawer(database({}), "database", onClose)
 
     fireEvent.click(menuTrigger())
-    expect(screen.getByRole("button", { name: "JDBC" })).toBeTruthy()
+    expect(screen.getByRole("menuitem", { name: "JDBC" })).toBeTruthy()
 
     // Escape while the menu is open dismisses only the menu, not the drawer.
     fireEvent.keyDown(menuTrigger(), { key: "Escape" })
-    expect(screen.queryByRole("button", { name: "JDBC" })).toBeNull()
+    expect(screen.queryByRole("menuitem", { name: "JDBC" })).toBeNull()
     expect(onClose).not.toHaveBeenCalled()
   })
 
@@ -262,5 +265,122 @@ describe("DatabaseCopyMenu Escape handling", () => {
 
     fireEvent.keyDown(screen.getByRole("complementary"), { key: "Escape" })
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("DatabaseCopyMenu ARIA menu widget", () => {
+  it("exposes the panel as role=menu and each choice as role=menuitem when open", () => {
+    renderDrawer(database({}))
+    fireEvent.click(menuTrigger())
+
+    const panel = screen.getByRole("menu")
+    expect(panel).toBeTruthy()
+    expect(panel.getAttribute("aria-label")).toBe("Copy connection URL formats")
+
+    const items = screen.getAllByRole("menuitem")
+    expect(items.map((i) => i.textContent)).toEqual([
+      "Original",
+      "JDBC",
+      "URI",
+      "URI corta",
+    ])
+
+    // The trigger points aria-controls at the panel it actually opens, so the
+    // advertised menu is the widget that is rendered.
+    expect(menuTrigger().getAttribute("aria-controls")).toBe(
+      panel.getAttribute("id")
+    )
+  })
+
+  it("focuses the panel on open", () => {
+    renderDrawer(database({}))
+    fireEvent.click(menuTrigger())
+    expect(screen.getByRole("menu")).toBe(document.activeElement)
+  })
+
+  it("moves focus with ArrowDown/ArrowUp/Home/End using a roving tabindex", () => {
+    renderDrawer(database({}))
+    fireEvent.click(menuTrigger())
+    const panel = screen.getByRole("menu")
+
+    // ArrowDown from the first choice moves to the next.
+    fireEvent.keyDown(panel, { key: "ArrowDown" })
+    expect(screen.getByRole("menuitem", { name: "JDBC" })).toBe(
+      document.activeElement
+    )
+
+    // ArrowUp wraps back to the first choice.
+    fireEvent.keyDown(screen.getByRole("menuitem", { name: "JDBC" }), {
+      key: "ArrowUp",
+    })
+    expect(screen.getByRole("menuitem", { name: "Original" })).toBe(
+      document.activeElement
+    )
+
+    // End jumps to the last choice.
+    fireEvent.keyDown(panel, { key: "End" })
+    expect(screen.getByRole("menuitem", { name: "URI corta" })).toBe(
+      document.activeElement
+    )
+
+    // Home jumps back to the first choice.
+    fireEvent.keyDown(screen.getByRole("menuitem", { name: "URI corta" }), {
+      key: "Home",
+    })
+    expect(screen.getByRole("menuitem", { name: "Original" })).toBe(
+      document.activeElement
+    )
+
+    // Only the current choice is in the tab order (roving tabindex).
+    expect(screen.getByRole("menuitem", { name: "Original" }).tabIndex).toBe(0)
+    for (const name of ["JDBC", "URI", "URI corta"]) {
+      expect(screen.getByRole("menuitem", { name }).tabIndex).toBe(-1)
+    }
+  })
+
+  it("skips disabled choices during arrow navigation", () => {
+    // Only Original is enabled (the derived formats are null); arrows stay put.
+    renderDrawer(database({ internal_db_url: "not a url : //" }))
+    fireEvent.click(menuTrigger())
+    const panel = screen.getByRole("menu")
+
+    fireEvent.keyDown(panel, { key: "ArrowDown" })
+    expect(screen.getByRole("menuitem", { name: "Original" })).toBe(
+      document.activeElement
+    )
+  })
+
+  it("returns focus to the trigger when Escape closes the menu", () => {
+    renderDrawer(database({}))
+    fireEvent.click(menuTrigger())
+    expect(screen.getByRole("menu")).toBe(document.activeElement)
+
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" })
+    expect(screen.queryByRole("menuitem", { name: "JDBC" })).toBeNull()
+    expect(menuTrigger()).toBe(document.activeElement)
+  })
+
+  it("returns focus to the trigger when a format is selected", async () => {
+    renderDrawer(database({}))
+    const trigger = menuTrigger()
+    fireEvent.click(trigger)
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: "JDBC" }))
+      await Promise.resolve()
+    })
+    expect(screen.queryByRole("menuitem", { name: "JDBC" })).toBeNull()
+    // The trigger swaps to a "Copied" label but stays the same DOM node.
+    expect(trigger).toBe(document.activeElement)
+  })
+
+  it("returns focus to the trigger when a click outside closes the menu", () => {
+    renderDrawer(database({}))
+    fireEvent.click(menuTrigger())
+    expect(screen.getByRole("menu")).toBe(document.activeElement)
+
+    fireEvent.mouseDown(document.body)
+    expect(screen.queryByRole("menuitem", { name: "JDBC" })).toBeNull()
+    expect(menuTrigger()).toBe(document.activeElement)
   })
 })
