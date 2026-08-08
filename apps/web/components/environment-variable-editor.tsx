@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
+  Copy,
   Eye,
   EyeOff,
   Loader2,
@@ -23,6 +24,8 @@ import {
   partitionEnvsByPreview,
   sortEnvsByKey,
 } from "@/lib/envs"
+import { CopyEnvDialog } from "./copy-env-dialog"
+import { EnvBadges } from "./env-badges"
 
 type Draft = {
   /** null for an unsaved "add" row. */
@@ -100,6 +103,11 @@ export function EnvironmentVariableEditor({
   const [adding, setAdding] = useState(false)
   const [addingDraft, setAddingDraft] = useState<Draft | null>(null)
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null)
+  // The env var whose "Copy to…" dialog is open (the source of the copy).
+  const [copyingEnv, setCopyingEnv] = useState<EnvironmentVariable | null>(null)
+  // Inline success message after a copy; cleared by its dismiss button or
+  // when the drawer re-targets another resource.
+  const [copyNotice, setCopyNotice] = useState<string | null>(null)
   const [savingKey, setSavingKey] = useState<string | null>(null)
   // Row-scoped error: `{ uuid, message }` where uuid is the env uuid or the
   // reserved '__add__' for the add row. Rendered on the row it belongs to.
@@ -142,6 +150,8 @@ export function EnvironmentVariableEditor({
     setSearchKey("")
     setRevealed(false)
     setPreviewCollapsedOverride(null)
+    setCopyingEnv(null)
+    setCopyNotice(null)
   }, [resourceUuid])
 
   const { production: productionEnvs, preview: previewEnvs } = useMemo(
@@ -245,6 +255,11 @@ export function EnvironmentVariableEditor({
   function startConfirmDelete(env: EnvironmentVariable) {
     if (savingKey) return
     setConfirmingDelete(env.uuid)
+  }
+
+  function startCopy(env: EnvironmentVariable) {
+    if (savingKey) return
+    setCopyingEnv(env)
   }
 
   function cancelConfirmDelete() {
@@ -460,6 +475,21 @@ export function EnvironmentVariableEditor({
         </span>
       </div>
 
+      {copyNotice && (
+        <p className="mt-2 flex items-center justify-between gap-2 rounded-md border border-emerald-600/20 bg-emerald-600/5 px-2 py-1 text-xs text-emerald-700 dark:text-emerald-400">
+          <span>{copyNotice}</span>
+          <button
+            type="button"
+            onClick={() => setCopyNotice(null)}
+            aria-label="Dismiss copy notice"
+            title="Dismiss"
+            className="shrink-0 text-emerald-700/70 hover:text-emerald-700 dark:text-emerald-400/70 dark:hover:text-emerald-400"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </p>
+      )}
+
       {envs.length > 0 && (
         <div className="relative mt-2">
           <Search className="pointer-events-none absolute top-1/2 left-2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -522,6 +552,7 @@ export function EnvironmentVariableEditor({
           isFiltering={isFiltering}
           onEdit={startEdit}
           onConfirmDelete={startConfirmDelete}
+          onCopy={startCopy}
           onCancelConfirmDelete={cancelConfirmDelete}
           onDelete={handleDelete}
           onSaveEdit={handleSaveEdit}
@@ -575,6 +606,7 @@ export function EnvironmentVariableEditor({
             isFiltering={isFiltering}
             onEdit={startEdit}
             onConfirmDelete={startConfirmDelete}
+            onCopy={startCopy}
             onCancelConfirmDelete={cancelConfirmDelete}
             onDelete={handleDelete}
             onSaveEdit={handleSaveEdit}
@@ -585,6 +617,17 @@ export function EnvironmentVariableEditor({
             onCancelAdd={cancelAdd}
           />
         </EnvSection>
+      )}
+
+      {copyingEnv && (
+        <CopyEnvDialog
+          source={{ resource: { type, uuid: resourceUuid }, env: copyingEnv }}
+          onCancel={() => setCopyingEnv(null)}
+          onCopied={(message) => {
+            setCopyingEnv(null)
+            setCopyNotice(message)
+          }}
+        />
       )}
     </div>
   )
@@ -682,6 +725,7 @@ function EnvList({
   isFiltering,
   onEdit,
   onConfirmDelete,
+  onCopy,
   onCancelConfirmDelete,
   onDelete,
   onSaveEdit,
@@ -704,6 +748,7 @@ function EnvList({
   isFiltering: boolean
   onEdit: (env: EnvironmentVariable) => void
   onConfirmDelete: (env: EnvironmentVariable) => void
+  onCopy: (env: EnvironmentVariable) => void
   onCancelConfirmDelete: () => void
   onDelete: (env: EnvironmentVariable) => Promise<void>
   onSaveEdit: (env: EnvironmentVariable) => Promise<void>
@@ -762,6 +807,7 @@ function EnvList({
                 env={env}
                 revealed={revealed}
                 onEdit={() => onEdit(env)}
+                onCopy={() => onCopy(env)}
                 onDelete={() => onConfirmDelete(env)}
                 disabled={savingKey !== null}
               />
@@ -800,6 +846,7 @@ function EnvRowDisplay({
   env,
   revealed,
   onEdit,
+  onCopy,
   onDelete,
   disabled,
 }: {
@@ -807,6 +854,7 @@ function EnvRowDisplay({
   /** Whether the list-level "Reveal all" is active. */
   revealed: boolean
   onEdit: () => void
+  onCopy: () => void
   onDelete: () => void
   disabled: boolean
 }) {
@@ -833,6 +881,16 @@ function EnvRowDisplay({
           </button>
           <button
             type="button"
+            onClick={onCopy}
+            disabled={disabled}
+            aria-label={`Copy ${env.key} to another resource`}
+            title="Copy to…"
+            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted disabled:opacity-40"
+          >
+            <Copy className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
             onClick={onDelete}
             disabled={disabled}
             aria-label={`Delete ${env.key}`}
@@ -853,30 +911,6 @@ function EnvRowDisplay({
         </p>
       )}
     </div>
-  )
-}
-
-function EnvBadges({ env }: { env: EnvironmentVariable }) {
-  const badges: Array<{ label: string; title: string }> = []
-  if (env.is_runtime)
-    badges.push({ label: "runtime", title: "Runtime variable" })
-  if (env.is_buildtime)
-    badges.push({ label: "buildtime", title: "Build-time variable" })
-  if (env.is_shared) badges.push({ label: "shared", title: "Shared variable" })
-  if (env.is_shown_once) badges.push({ label: "once", title: "Shown once" })
-  if (badges.length === 0) return null
-  return (
-    <span className="shrink-0 gap-1">
-      {badges.map((b) => (
-        <span
-          key={b.label}
-          title={b.title}
-          className="rounded border border-border px-1 py-0 text-[9px] tracking-wider text-muted-foreground uppercase"
-        >
-          {b.label}
-        </span>
-      ))}
-    </span>
   )
 }
 
