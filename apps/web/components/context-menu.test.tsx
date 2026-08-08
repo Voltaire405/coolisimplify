@@ -109,9 +109,19 @@ describe('ContextMenu ARIA menu widget', () => {
     fireEvent.click(trigger())
     const panel = screen.getByRole('menu')
 
-    // The cursor starts on the first enabled item (Start). ArrowDown advances
-    // one enabled item, skipping the disabled Stop to land on Delete.
+    // The menu just opened, so it sits "before" the first choice: the first
+    // ArrowDown lands on the first enabled item (Start), not skipping to the
+    // second.
     fireEvent.keyDown(panel, { key: 'ArrowDown' })
+    expect(screen.getByRole('menuitem', { name: 'Start' })).toBe(
+      document.activeElement,
+    )
+
+    // ArrowDown again advances one enabled item, skipping the disabled Stop to
+    // land on Delete.
+    fireEvent.keyDown(screen.getByRole('menuitem', { name: 'Start' }), {
+      key: 'ArrowDown',
+    })
     expect(screen.getByRole('menuitem', { name: 'Delete' })).toBe(
       document.activeElement,
     )

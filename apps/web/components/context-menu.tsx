@@ -111,6 +111,24 @@ export function ContextMenu({ children, items, onSelect }: ContextMenuProps) {
   // holds focus when the menu opens.
   function handleMenuKeyDown(e: React.KeyboardEvent) {
     if (enabledIndices.length === 0) return
+    // The panel (role="menu") holds focus until the first arrow lands on an
+    // item. At that point activeIndex is null, but activeIndexValue already
+    // defaults to the first enabled item, so a naive cursor would make the
+    // first ArrowDown skip it (and the first ArrowUp skip the last). Treat the
+    // just-opened state as sitting "before" the first choice: ArrowDown/Home
+    // reach the first enabled item and ArrowUp/End reach the last one.
+    if (activeIndex == null) {
+      if (e.key === 'ArrowDown' || e.key === 'Home') {
+        e.preventDefault()
+        focusItem(enabledIndices[0]!)
+        return
+      }
+      if (e.key === 'ArrowUp' || e.key === 'End') {
+        e.preventDefault()
+        focusItem(enabledIndices[enabledIndices.length - 1]!)
+        return
+      }
+    }
     const cursor = Math.max(enabledIndices.indexOf(activeIndexValue ?? -1), 0)
     switch (e.key) {
       case 'ArrowDown':
