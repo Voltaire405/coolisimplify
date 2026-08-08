@@ -16,6 +16,7 @@ import {
   Eye,
   EyeOff,
   Copy,
+  Info,
 } from "lucide-react"
 import { CopyButton } from "./copy-button"
 import { StatusIndicator } from "./status-indicator"
@@ -75,11 +76,14 @@ interface ResourceDrawerProps {
 function PropertyRow({
   icon: Icon,
   label,
+  labelHint,
   children,
   className,
 }: {
   icon: React.ComponentType<{ className?: string }>
   label: string
+  /** Optional element rendered beside the label, e.g. an info tooltip icon. */
+  labelHint?: React.ReactNode
   children: React.ReactNode
   className?: string
 }) {
@@ -87,7 +91,14 @@ function PropertyRow({
     <div className="flex items-start gap-2">
       <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       <div className={cn("min-w-0 flex-1", className)}>
-        <p className="text-xs text-muted-foreground">{label}</p>
+        {labelHint ? (
+          <div className="flex items-center gap-1">
+            <p className="text-xs text-muted-foreground">{label}</p>
+            {labelHint}
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">{label}</p>
+        )}
         <div className="mt-0.5 text-sm text-foreground">{children}</div>
       </div>
     </div>
@@ -96,6 +107,34 @@ function PropertyRow({
 
 function Value({ children }: { children: React.ReactNode }) {
   return <span className="break-words whitespace-pre-wrap">{children}</span>
+}
+
+/**
+ * A small info icon beside a row label that reveals an explanation on hover
+ * or keyboard focus. The explanation is the button's accessible name (via
+ * aria-label) and the popover is wired to it with aria-describedby.
+ */
+function LabelTooltip({ text }: { text: string }) {
+  const tooltipId = useId()
+  return (
+    <span className="group relative inline-flex">
+      <button
+        type="button"
+        aria-label={text}
+        aria-describedby={tooltipId}
+        className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+      >
+        <Info className="h-3 w-3" />
+      </button>
+      <span
+        id={tooltipId}
+        role="tooltip"
+        className="pointer-events-none absolute bottom-full left-0 z-30 mb-1.5 hidden w-56 rounded-md border border-border bg-popover px-2 py-1.5 text-[11px] leading-snug text-popover-foreground shadow-sm group-focus-within:block group-hover:block"
+      >
+        {text}
+      </span>
+    </span>
+  )
 }
 
 /**
@@ -888,7 +927,13 @@ export function ResourceDrawer({
           )}
 
           {type === "application" ? (
-            <PropertyRow icon={Box} label="Network aliases">
+            <PropertyRow
+              icon={Box}
+              label="Network aliases"
+              labelHint={
+                <LabelTooltip text="Type an alias and press comma (,) or Enter to add it as a chip. Click the X to remove a chip. Changes save automatically." />
+              }
+            >
               <NetworkAliasEditor
                 key={resource.uuid}
                 value={networkAliases ?? ""}

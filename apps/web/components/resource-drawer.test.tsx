@@ -557,6 +557,18 @@ describe("network alias chips in the resource drawer", () => {
     ).toBeTruthy()
   })
 
+  it("shows an info tooltip explaining the chip interaction beside the label", () => {
+    renderDrawer(application({}), "application")
+    // The explanation is the icon button's accessible name and the tooltip
+    // content, so both sighted hover users and screen readers get it.
+    expect(
+      screen.getByRole("button", {
+        name: /type an alias and press comma/i,
+      })
+    ).toBeTruthy()
+    expect(screen.getByRole("tooltip")).toBeTruthy()
+  })
+
   it("offers no network alias editing for non-applications", () => {
     renderDrawer(database({}))
     expect(screen.queryByText("Network aliases")).toBeNull()
