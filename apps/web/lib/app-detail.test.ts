@@ -165,6 +165,11 @@ describe('configEditPayload', () => {
     expect(configEditPayload({ kind: 'branch', value: 'dev' })).toEqual({
       git_branch: 'dev',
     })
+    expect(
+      configEditPayload({ kind: 'network-alias', value: 'web.alias' }),
+    ).toEqual({
+      custom_network_aliases: 'web.alias',
+    })
   })
 })
 

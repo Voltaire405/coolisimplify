@@ -63,10 +63,12 @@ interface ResourceDrawerProps {
   onClose: () => void
   /** Toast sink; forwarded to the env editor for save/delete feedback. */
   onNotify?: (message: string, type: "success" | "error") => void
-  /** Persist an edited Docker image tag or git branch; resolves true on success. */
+  /** Persist an edited Docker image tag, git branch, or network alias; resolves true on success. */
   onConfigEdit?: (
     uuid: string,
-    payload: Record<string, unknown>
+    payload: Record<string, unknown>,
+    /** False for edits that must not raise the Redeploy-needed marker (network aliases). */
+    markRedeployNeeded?: boolean
   ) => Promise<boolean>
 }
 
@@ -608,7 +610,14 @@ export function ResourceDrawer({
     if (!onConfigEdit) return false
     setSavingConfig(true)
     try {
-      return await onConfigEdit(resource.uuid, configEditPayload(next))
+      // The Redeploy-needed marker means "container started with a different
+      // tag/branch" (CONTEXT.md), so only those edits raise it; a network-alias
+      // change is applied by any restart and must not mark the row.
+      return await onConfigEdit(
+        resource.uuid,
+        configEditPayload(next),
+        next.kind !== "network-alias"
+      )
     } finally {
       setSavingConfig(false)
     }
@@ -624,6 +633,14 @@ export function ResourceDrawer({
   const networkAliases = (
     resource as { custom_network_aliases?: string | null }
   ).custom_network_aliases?.trim()
+  // Network aliases are editable for applications only: Coolify's API accepts
+  // `custom_network_aliases` on PATCH /applications/{uuid} alone (the Service
+  // and Database models have no such field). The row shows even when empty so
+  // the user can add aliases from scratch.
+  const networkAliasConfig: EditableConfig | null =
+    type === "application"
+      ? { kind: "network-alias", value: networkAliases ?? "" }
+      : null
   // Coolify names the container after the resource UUID; the API does not
   // expose a separate container_name field.
   const containerName =
@@ -778,11 +795,22 @@ export function ResourceDrawer({
             </PropertyRow>
           )}
 
-          {networkAliases && (
+          {type === "application" && networkAliasConfig ? (
+            <PropertyRow icon={Box} label="Network aliases">
+              <div className="flex min-w-0 flex-col gap-1">
+                <EditableValue
+                  config={networkAliasConfig}
+                  label="Network aliases"
+                  saving={savingConfig}
+                  onCommit={commitConfig}
+                />
+              </div>
+            </PropertyRow>
+          ) : networkAliases ? (
             <PropertyRow icon={Box} label="Network aliases">
               <Value>{networkAliases}</Value>
             </PropertyRow>
-          )}
+          ) : null}
 
           <PropertyRow icon={Container} label="Container name">
             <Value>{containerName}</Value>

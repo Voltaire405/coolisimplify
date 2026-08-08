@@ -69,15 +69,23 @@ export function versionLabel(
 }
 
 /**
- * Which config field the Details tab may edit for a given application, and its
- * current value. Only one field is ever editable: the Docker image tag for
- * dockerimage apps, or the git branch for git-backed apps. The image *name*
- * and repository *path* stay read-only — changing them is effectively a
- * different resource.
+ * The tag/branch config fields, derived by `editableConfig` from the build
+ * source. The image *name* and repository *path* stay read-only — changing
+ * them is effectively a different resource.
  */
-export type EditableConfig =
+export type SourceConfig =
   | { kind: 'tag'; value: string }
   | { kind: 'branch'; value: string }
+
+/**
+ * Any config field the Details tab may edit, and its current value. The
+ * tag/branch fields come from `editableConfig`; the network-alias field is
+ * drawer-constructed (it applies to every application regardless of build
+ * pack, so no single discriminator produces it).
+ */
+export type EditableConfig =
+  | SourceConfig
+  | { kind: 'network-alias'; value: string }
 
 export function editableConfig(
   app: {
@@ -89,7 +97,7 @@ export function editableConfig(
     docker_registry_image_name?: string | null
     docker_registry_image_tag?: string | null
   },
-): EditableConfig | null {
+): SourceConfig | null {
   const source = classifyApplicationSource(app)
   if (source === 'docker-image') {
     return { kind: 'tag', value: app.docker_registry_image_tag?.trim() ?? '' }
@@ -103,10 +111,13 @@ export function editableConfig(
 /** PATCH body for an edited config field. */
 export function configEditPayload(
   config: EditableConfig,
-): { docker_registry_image_tag: string } | { git_branch: string } {
-  return config.kind === 'tag'
-    ? { docker_registry_image_tag: config.value }
-    : { git_branch: config.value }
+):
+  | { docker_registry_image_tag: string }
+  | { git_branch: string }
+  | { custom_network_aliases: string } {
+  if (config.kind === 'tag') return { docker_registry_image_tag: config.value }
+  if (config.kind === 'branch') return { git_branch: config.value }
+  return { custom_network_aliases: config.value }
 }
 
 /**

@@ -8,7 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { ResourceDrawer } from "./resource-drawer"
-import type { Database, ResourceType } from "@/lib/types"
+import type { Application, Database, ResourceType } from "@/lib/types"
 
 const POSTGRES_URL = "postgres://user:pass@abc123:5432/postgres"
 
@@ -26,10 +26,30 @@ function database(overrides: Partial<Database>): Database {
   }
 }
 
+function application(overrides: Partial<Application>): Application {
+  return {
+    id: 1,
+    uuid: "app-1",
+    name: "my-app",
+    status: "running",
+    build_pack: "nixpacks",
+    git_repository: "org/repo",
+    git_branch: "main",
+    custom_network_aliases: "web.alias",
+    tags: [],
+    ...overrides,
+  }
+}
+
 function renderDrawer(
-  resource: Database,
+  resource: Database | Application,
   type: ResourceType = "database",
-  onClose: () => void = () => {}
+  onClose: () => void = () => {},
+  onConfigEdit?: (
+    uuid: string,
+    payload: Record<string, unknown>,
+    markRedeployNeeded?: boolean
+  ) => Promise<boolean>
 ) {
   return render(
     <ResourceDrawer
@@ -40,6 +60,7 @@ function renderDrawer(
       tab="details"
       onTabChange={() => {}}
       onClose={onClose}
+      onConfigEdit={onConfigEdit}
     />
   )
 }
@@ -424,5 +445,40 @@ describe("DatabaseCopyMenu ARIA menu widget", () => {
     fireEvent.mouseDown(document.body)
     expect(screen.queryByRole("menuitem", { name: "JDBC" })).toBeNull()
     expect(menuTrigger()).toBe(document.activeElement)
+  })
+})
+
+describe("network alias editing in the resource drawer", () => {
+  it("lets an application's network alias be edited in place", async () => {
+    const onConfigEdit = vi.fn().mockResolvedValue(true)
+    renderDrawer(application({}), "application", () => {}, onConfigEdit)
+
+    // The current value renders as a click-to-edit button.
+    fireEvent.click(screen.getByText("web.alias"))
+    const input = screen.getByRole("textbox", { name: "Network aliases" })
+    await act(async () => {
+      fireEvent.change(input, { target: { value: "api.alias" } })
+      fireEvent.keyDown(input, { key: "Enter" })
+      await Promise.resolve()
+    })
+
+    expect(onConfigEdit).toHaveBeenCalledWith(
+      "app-1",
+      { custom_network_aliases: "api.alias" },
+      // Network-alias edits must not raise the Redeploy-needed marker.
+      false
+    )
+  })
+
+  it("shows the network alias row even when the application has none yet", () => {
+    renderDrawer(application({ custom_network_aliases: null }), "application")
+    // The "—" placeholder is a button that starts editing, so aliases can be
+    // added from scratch.
+    expect(screen.getByTitle("Click to edit Network aliases")).toBeTruthy()
+  })
+
+  it("offers no network alias editing for non-applications", () => {
+    renderDrawer(database({}))
+    expect(screen.queryByText("Network aliases")).toBeNull()
   })
 })

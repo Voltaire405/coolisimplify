@@ -904,10 +904,17 @@ function DashboardPage() {
     [client, addToast, refetchByType, isResourceBusy],
   )
 
-  // Persist an edited Docker image tag or git branch (ADR-0005). The drawer
-  // passes the current resource value; the no-op guard lives in the editor.
+  // Persist an edited Docker image tag, git branch, or network alias. The
+  // drawer passes the current resource value; the no-op guard lives in the
+  // editor. Only tag/branch edits raise the Redeploy-needed marker — the
+  // marker's meaning is "container started with a different tag/branch"
+  // (ADR-0005), and a network-alias change is applied by any restart.
   const handleConfigEdit = useCallback(
-    async (uuid: string, payload: Record<string, unknown>): Promise<boolean> => {
+    async (
+      uuid: string,
+      payload: Record<string, unknown>,
+      markRedeployNeeded = true,
+    ): Promise<boolean> => {
       if (!client) {
         addToast('Coolify is not configured', 'error')
         return false
@@ -919,7 +926,9 @@ function DashboardPage() {
       try {
         await client.updateApplication(uuid, payload)
         addToast('Configuration saved', 'success')
-        setRedeployNeeded((prev) => new Set(prev).add(uuid))
+        if (markRedeployNeeded) {
+          setRedeployNeeded((prev) => new Set(prev).add(uuid))
+        }
         refetchByType('application')
         return true
       } catch (err) {
