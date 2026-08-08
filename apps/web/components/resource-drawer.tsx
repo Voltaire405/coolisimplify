@@ -13,12 +13,19 @@ import {
   Check,
   Loader2,
   Pencil,
+  Eye,
+  EyeOff,
 } from "lucide-react"
 import { CopyButton } from "./copy-button"
 import { StatusIndicator } from "./status-indicator"
 import { EnvironmentVariableEditor } from "./environment-variable-editor"
 import { isResourceActive, useClient } from "@/hooks/use-coolify"
-import type { Resource, ResourceType, Tag as TagType } from "@/lib/types"
+import type {
+  Resource,
+  ResourceType,
+  Database as DatabaseResource,
+  Tag as TagType,
+} from "@/lib/types"
 import {
   classifyApplicationSource,
   dockerImageLabel,
@@ -26,6 +33,7 @@ import {
   configEditPayload,
   type EditableConfig,
 } from "@/lib/app-detail"
+import { databaseConnectionUrls } from "@/lib/database-detail"
 import {
   classifyResourceState,
   RESOURCE_STATE_LABEL,
@@ -81,6 +89,36 @@ function PropertyRow({
 
 function Value({ children }: { children: React.ReactNode }) {
   return <span className="break-words whitespace-pre-wrap">{children}</span>
+}
+
+/**
+ * A masked, copyable value (used for database connection URLs). Hidden by
+ * default behind an eye toggle; the clipboard button always copies the real
+ * value, whether or not it is revealed.
+ */
+function SecretValue({ value }: { value: string }) {
+  const [revealed, setRevealed] = useState(false)
+  return (
+    <span className="flex min-w-0 items-center gap-1.5">
+      <span className="min-w-0 flex-1 truncate font-mono">
+        {revealed ? value : "••••••••"}
+      </span>
+      <button
+        type="button"
+        onClick={() => setRevealed((r) => !r)}
+        aria-label={revealed ? "Hide value" : "Reveal value"}
+        title={revealed ? "Hide" : "Reveal"}
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
+      >
+        {revealed ? (
+          <EyeOff className="h-3.5 w-3.5" />
+        ) : (
+          <Eye className="h-3.5 w-3.5" />
+        )}
+      </button>
+      <CopyButton value={value} label="Copy connection URL" />
+    </span>
+  )
 }
 
 /**
@@ -326,6 +364,13 @@ export function ResourceDrawer({
     resource.uuid
   const tags = (resource as { tags?: TagType[] | null }).tags
 
+  // Database connection URLs are masked by default (SecretValue) and only shown
+  // when Coolify supplied them. The public one is omitted when not exposed.
+  const dbUrls =
+    type === "database"
+      ? databaseConnectionUrls(resource as DatabaseResource)
+      : null
+
   return (
     <div
       role="complementary"
@@ -415,6 +460,20 @@ export function ResourceDrawer({
                   {RESOURCE_STATE_LABEL[state].toLowerCase()}
                 </span>
               </span>
+            </PropertyRow>
+          )}
+
+          {type === "database" && dbUrls?.label && dbUrls.internalUrl && (
+            <PropertyRow
+              icon={Database}
+              label={`${dbUrls.label} URL (internal)`}
+            >
+              <SecretValue value={dbUrls.internalUrl} />
+            </PropertyRow>
+          )}
+          {type === "database" && dbUrls?.label && dbUrls.publicUrl && (
+            <PropertyRow icon={Database} label={`${dbUrls.label} URL (public)`}>
+              <SecretValue value={dbUrls.publicUrl} />
             </PropertyRow>
           )}
 

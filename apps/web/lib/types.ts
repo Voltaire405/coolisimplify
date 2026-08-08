@@ -152,6 +152,14 @@ export interface Database {
   is_public?: boolean
   public_port?: number
   public_port_timeout?: number
+  /**
+   * Connection URLs Coolify appends to every database serialization (model
+   * accessors): `internal_db_url` reaches the container on the Docker network,
+   * `external_db_url` is the public one and is only present when the database
+   * is exposed (is_public with a public port and a reachable server IP).
+   */
+  internal_db_url?: string | null
+  external_db_url?: string | null
   environment_id?: number
   server_id?: number
   destination_type?: string
