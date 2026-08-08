@@ -2,7 +2,7 @@
 // URL mapping, value readability semantics, and that every payload the editor
 // can send conforms to the env-var request schemas in coolify-openapi-v4.x.yaml.
 import { describe, expect, it } from "vitest"
-import { specLines } from "../test/coolify-spec"
+import { envRequestProps, specLines } from "../test/coolify-spec"
 import type { EnvironmentVariable, ResourceType } from "./types"
 import {
   envBasePath,
@@ -13,6 +13,7 @@ import {
   filterEnvsByKey,
   isValueReadable,
   partitionEnvsByPreview,
+  sameEnvKey,
   sortEnvsByKey,
 } from "./envs"
 
@@ -71,6 +72,15 @@ describe("envUpdateIncludesPreview", () => {
     expect(envUpdateIncludesPreview("application")).toBe(true)
     expect(envUpdateIncludesPreview("service")).toBe(true)
     expect(envUpdateIncludesPreview("database")).toBe(false)
+  })
+})
+
+describe("sameEnvKey", () => {
+  it("matches exactly, case-insensitively, ignoring whitespace", () => {
+    expect(sameEnvKey("KEY", "key")).toBe(true)
+    expect(sameEnvKey("  KEY  ", "key")).toBe(true)
+    expect(sameEnvKey("KEY", "KEY2")).toBe(false)
+    expect(sameEnvKey("KEY", "")).toBe(false)
   })
 })
 
@@ -187,52 +197,13 @@ describe("sortEnvsByKey", () => {
 
 // The env-var endpoint paths are quoted in the YAML (e.g.
 // `'/applications/{uuid}/envs':`), which the shared coolify-spec helper does
-// not parse, so read the request-body properties directly here.
+// not parse, so the item-path methods below read the raw lines directly.
 function pluralOf(type: ResourceType): string {
   return type === "application"
     ? "applications"
     : type === "service"
       ? "services"
       : "databases"
-}
-
-function envProps(type: ResourceType): Set<string> {
-  const path = `'/${pluralOf(type)}/{uuid}/envs':`
-  const start = specLines.findIndex(
-    (l) => l.trim().replace(/^"|"$/g, "") === path
-  )
-  expect(start, `env path not found: ${path}`).toBeGreaterThanOrEqual(0)
-  // The POST request body is the authoritative create schema. Anchor on the
-  // `post:` block (the GET response's `properties:` would otherwise match
-  // first), then take the first `properties:` after its `requestBody:`.
-  const post = specLines.findIndex((l, i) => i > start && l.trim() === "post:")
-  expect(post, `no post block for ${path}`).toBeGreaterThan(start)
-  const requestBody = specLines.findIndex(
-    (l, i) => i > post && l.trim() === "requestBody:"
-  )
-  expect(requestBody, `no requestBody for ${path}`).toBeGreaterThan(post)
-  const propsStart = specLines.findIndex(
-    (l, i) =>
-      i > requestBody && l.includes("properties:") && !l.trim().startsWith("#")
-  )
-  expect(propsStart, `no properties block for ${path}`).toBeGreaterThan(
-    requestBody
-  )
-
-  const props = new Set<string>()
-  for (
-    let i = propsStart + 1;
-    i < Math.min(propsStart + 40, specLines.length);
-    i++
-  ) {
-    const l = specLines[i]!
-    const ind = l.length - l.trimStart().length
-    const m = l.trim().match(/^([a-z_][a-z0-9_]*):/)
-    if (!m) continue
-    if (ind <= 14) break // left the properties block
-    props.add(m[1]!)
-  }
-  return props
 }
 
 describe("payload conformance to the OpenAPI spec", () => {
@@ -244,7 +215,7 @@ describe("payload conformance to the OpenAPI spec", () => {
   it.each(ALL_TYPES)(
     "accepts every field the editor can send on a %s",
     (type) => {
-      const allowed = envProps(type)
+      const allowed = envRequestProps(type)
       for (const k of EDITABLE) {
         if (k === "is_preview" && type === "database") continue
         expect(
@@ -256,9 +227,21 @@ describe("payload conformance to the OpenAPI spec", () => {
   )
 
   it("does not let databases send is_preview even though the model carries it", () => {
-    expect(envProps("database").has("is_preview")).toBe(false)
-    expect(envProps("application").has("is_preview")).toBe(true)
-    expect(envProps("service").has("is_preview")).toBe(true)
+    expect(envRequestProps("database").has("is_preview")).toBe(false)
+    expect(envRequestProps("application").has("is_preview")).toBe(true)
+    expect(envRequestProps("service").has("is_preview")).toBe(true)
+  })
+
+  it("does not leak nested metadata as request fields", () => {
+    // A regression guard for the env-request props extractor: `type:` and
+    // `description:` are property sub-keys, not fields the payload may carry.
+    for (const type of ALL_TYPES) {
+      for (const method of ["post", "patch"] as const) {
+        const allowed = envRequestProps(type, method)
+        expect(allowed.has("type")).toBe(false)
+        expect(allowed.has("description")).toBe(false)
+      }
+    }
   })
 })
 

@@ -149,3 +149,65 @@ export function componentSchema(name: string): Record<string, SpecProp> {
   const propsLine = findLine(/^\s{6}properties:\s*$/, start)
   return propsAt(propsLine + 1, end, 8)
 }
+
+/**
+ * Allowed request-body properties of the env-var collection endpoint for a
+ * resource type, read straight from the synced YAML. The env-var paths are
+ * quoted in the YAML (e.g. `'/applications/{uuid}/envs':`), which
+ * `createSchema` does not parse, so the request-body properties are read
+ * directly here.
+ */
+export function envRequestProps(
+  type: 'application' | 'service' | 'database',
+  method: 'post' | 'patch' = 'post',
+): Set<string> {
+  const plural =
+    type === 'application'
+      ? 'applications'
+      : type === 'service'
+        ? 'services'
+        : 'databases'
+  const path = `'/${plural}/{uuid}/envs':`
+  const start = specLines.findIndex(
+    (l) => l.trim().replace(/^"|"$/g, '') === path,
+  )
+  if (start < 0) throw new Error(`env path not found: ${path}`)
+  // Anchor on the method's own block (the GET response's `properties:` would
+  // otherwise match first), then take the first `properties:` after its
+  // `requestBody:`.
+  const methodLine = specLines.findIndex(
+    (l, i) => i > start && l.trim() === `${method}:`,
+  )
+  if (methodLine < 0 || methodLine <= start)
+    throw new Error(`no ${method} block for ${path}`)
+  const requestBody = specLines.findIndex(
+    (l, i) => i > methodLine && l.trim() === 'requestBody:',
+  )
+  if (requestBody < 0 || requestBody <= methodLine)
+    throw new Error(`no requestBody for ${path}`)
+  const propsStart = specLines.findIndex(
+    (l, i) =>
+      i > requestBody && l.includes('properties:') && !l.trim().startsWith('#'),
+  )
+  if (propsStart < 0 || propsStart <= requestBody)
+    throw new Error(`no properties block for ${path}`)
+
+  // Collect only the direct children of `properties:` (indent 16): the
+  // grandchildren (`type:`, `description:`) are metadata, not request fields,
+  // and the schema's own `type: object` sits at indent 14, ending the block.
+  const props = new Set<string>()
+  for (
+    let i = propsStart + 1;
+    i < Math.min(propsStart + 40, specLines.length);
+    i++
+  ) {
+    const l = specLines[i]!
+    const ind = l.length - l.trimStart().length
+    const m = l.trim().match(/^([a-z_][a-z0-9_]*):/)
+    if (!m) continue
+    if (ind <= 14) break // left the properties block
+    if (ind !== 16) continue // nested metadata, not a request field
+    props.add(m[1]!)
+  }
+  return props
+}

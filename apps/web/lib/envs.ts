@@ -104,6 +104,16 @@ export function sortEnvsByKey(
 }
 
 /**
+ * Whether two keys are the same variable: exact, case-insensitive, trimmed
+ * match — the Env Editor's duplicate-key semantics, applied within a single
+ * section (ADR-0008). The env-copy create/replace decision uses the same
+ * predicate as the editor's duplicate validation.
+ */
+export function sameEnvKey(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase()
+}
+
+/**
  * Case-insensitive substring match on the key only. Used by the Env Editor's
  * search box to narrow the list down to the variables worth editing; values are
  * intentionally ignored — they may be masked or hold secrets.
