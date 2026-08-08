@@ -13,6 +13,9 @@ interface ContextMenuProps {
     dangerous?: boolean
   }>
   onSelect: (action: RowAction) => void
+  /** Accessible name for the trigger button when its children are decorative
+   * (e.g. a bare icon). Without one the trigger has no discernible name. */
+  'aria-label'?: string
 }
 
 /**
@@ -31,7 +34,12 @@ interface ContextMenuProps {
  * enclosing resource drawer's window-level Escape listener does not also fire)
  * and only falls through to close the drawer once the menu is closed.
  */
-export function ContextMenu({ children, items, onSelect }: ContextMenuProps) {
+export function ContextMenu({
+  children,
+  items,
+  onSelect,
+  'aria-label': ariaLabel,
+}: ContextMenuProps) {
   const [open, setOpen] = useState(false)
   // The item currently holding the roving tab stop. Reset to null when the menu
   // opens so the cursor lands on the first enabled item.
@@ -166,6 +174,7 @@ export function ContextMenu({ children, items, onSelect }: ContextMenuProps) {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
+        aria-label={ariaLabel}
         className="flex h-9 w-9 items-center justify-center rounded-md hover:bg-muted sm:h-auto sm:w-auto sm:p-1"
       >
         {children}

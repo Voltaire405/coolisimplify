@@ -31,10 +31,12 @@ function renderMenu({
   items = DEFAULT_ITEMS,
   onSelect = () => {},
   onDrawerClose = vi.fn(),
+  triggerLabel,
 }: {
   items?: MenuItem[]
   onSelect?: (action: RowAction) => void
   onDrawerClose?: () => void
+  triggerLabel?: string
 } = {}) {
   // Mirrors the resource drawer: a window-level Escape listener that closes the
   // whole drawer, which an open menu must shield via stopPropagation. It lives
@@ -49,7 +51,11 @@ function renderMenu({
     }, [onDrawerClose])
     return (
       <div role="complementary" aria-label="Resource drawer">
-        <ContextMenu items={items} onSelect={onSelect}>
+        <ContextMenu
+          items={items}
+          onSelect={onSelect}
+          aria-label={triggerLabel}
+        >
           <span>Open actions</span>
         </ContextMenu>
       </div>
@@ -82,6 +88,13 @@ describe('ContextMenu ARIA menu widget', () => {
     // The trigger points aria-controls at the panel it actually opens, so the
     // advertised menu is the widget that is rendered.
     expect(trigger().getAttribute('aria-controls')).toBe(panel.getAttribute('id'))
+  })
+
+  it('gives the trigger an accessible name from aria-label when supplied', () => {
+    renderMenu({ triggerLabel: 'Resource actions' })
+    expect(
+      screen.getByRole('button', { name: /resource actions/i }),
+    ).toBeTruthy()
   })
 
   it('renders disabled items with aria-disabled, never the disabled attribute', () => {
