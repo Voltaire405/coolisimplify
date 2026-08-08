@@ -169,6 +169,7 @@ const POSTGRES_COPY_FORMATS: ReadonlyArray<{
 function DatabaseCopyMenu({ formats }: { formats: PostgresUrlFormats }) {
   const [open, setOpen] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [copyFailed, setCopyFailed] = useState(false)
   const [currentKey, setCurrentKey] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -232,13 +233,21 @@ function DatabaseCopyMenu({ formats }: { formats: PostgresUrlFormats }) {
     }
   }, [open])
 
-  async function handleCopy(value: string) {
+  // Resolves true when the write succeeded. On failure the menu stays open so
+  // the user can retry (unlike CopyButton, which swallows the error because the
+  // button remains available); a transient message surfaces the failure.
+  async function handleCopy(value: string): Promise<boolean> {
     try {
       await navigator.clipboard.writeText(value)
+      setCopyFailed(false)
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
+      return true
     } catch {
-      // Clipboard may be unavailable (e.g. non-secure context); ignore.
+      // Clipboard may be unavailable (e.g. non-secure context, denied
+      // permission, sandboxed iframe); surface it so the user can retry.
+      setCopyFailed(true)
+      return false
     }
   }
 
@@ -302,7 +311,10 @@ function DatabaseCopyMenu({ formats }: { formats: PostgresUrlFormats }) {
         type="button"
         ref={triggerRef}
         onClick={() => {
-          if (!open) setCurrentKey(null)
+          if (!open) {
+            setCurrentKey(null)
+            setCopyFailed(false)
+          }
           setOpen((o) => !o)
         }}
         aria-haspopup="menu"
@@ -341,8 +353,13 @@ function DatabaseCopyMenu({ formats }: { formats: PostgresUrlFormats }) {
                   aria-disabled={value == null}
                   onFocus={() => setCurrentKey(key)}
                   onClick={() => {
-                    if (value != null) void handleCopy(value)
-                    setOpen(false)
+                    if (value == null) return
+                    setCopyFailed(false)
+                    void handleCopy(value).then((ok) => {
+                      // Keep the menu open on failure so the user can retry
+                      // (or Escape/click-outside to dismiss).
+                      if (ok) setOpen(false)
+                    })
                   }}
                   className={cn(
                     "block w-full px-3 py-2 text-left text-sm transition-colors",
@@ -356,6 +373,15 @@ function DatabaseCopyMenu({ formats }: { formats: PostgresUrlFormats }) {
               )
             })}
           </div>
+          {copyFailed && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="border-t border-border px-3 py-2 text-xs text-destructive"
+            >
+              Copy failed. Please try again.
+            </div>
+          )}
         </div>
       )}
     </div>

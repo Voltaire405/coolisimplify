@@ -153,6 +153,39 @@ describe("DatabaseCopyMenu gating in the resource drawer", () => {
     }
   })
 
+  it("keeps the menu open and surfaces the failure when the clipboard write rejects", async () => {
+    const writeText = navigator.clipboard.writeText as ReturnType<typeof vi.fn>
+    writeText.mockRejectedValueOnce(new Error("denied"))
+
+    renderDrawer(database({}))
+    fireEvent.click(menuTrigger())
+    const jdbc = screen.getByRole("menuitem", { name: "JDBC" })
+
+    await act(async () => {
+      fireEvent.click(jdbc)
+      await Promise.resolve()
+    })
+
+    // The write was attempted but failed.
+    expect(writeText).toHaveBeenCalledTimes(1)
+
+    // The menu stays open so the user can retry (no Copied flash, no close).
+    expect(screen.queryByRole("menuitem", { name: "JDBC" })).not.toBeNull()
+    expect(menuTrigger().getAttribute("aria-label")).toBe("Copy connection URL")
+
+    // The failure is surfaced inside the panel.
+    expect(screen.getByText(/copy failed/i)).toBeTruthy()
+
+    // A retry from the same open menu succeeds and closes it.
+    writeText.mockResolvedValueOnce(undefined)
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: "JDBC" }))
+      await Promise.resolve()
+    })
+    expect(screen.queryByRole("menuitem", { name: "JDBC" })).toBeNull()
+    expect(screen.queryByText(/copy failed/i)).toBeNull()
+  })
+
   it("renders derived formats disabled when they could not be computed", () => {
     // A postgres image gates the menu on, but an unparseable URL leaves every
     // derived format null: only Original (the raw input) is enabled.
