@@ -140,6 +140,100 @@ function SecretValue({
   )
 }
 
+/** Splits Coolify's comma-separated alias string into trimmed non-empty items. */
+function parseAliases(value: string): string[] {
+  return value
+    .split(",")
+    .map((a) => a.trim())
+    .filter(Boolean)
+}
+
+/**
+ * Chip editor for an application's Docker network aliases. Coolify stores the
+ * aliases as one comma-separated string; here each alias is its own removable
+ * chip and typing a comma (or Enter) turns the draft into a chip. Every add or
+ * remove commits the joined list immediately through `onCommit` (which PATCHes
+ * `custom_network_aliases`); the chips update optimistically and revert to the
+ * last confirmed value if the save fails.
+ */
+function NetworkAliasEditor({
+  value,
+  saving,
+  onCommit,
+}: {
+  value: string
+  saving: boolean
+  onCommit: (next: string) => Promise<boolean>
+}) {
+  const [draft, setDraft] = useState("")
+  // Optimistic override applied while a save is in flight; null shows the
+  // confirmed value from the API. A failed save drops the override. The editor
+  // is keyed by resource uuid, so re-targeting the drawer remounts it fresh.
+  const [pending, setPending] = useState<string[] | null>(null)
+  const aliases = pending ?? parseAliases(value)
+
+  async function commit(next: string[]) {
+    setPending(next)
+    const ok = await onCommit(next.join(", "))
+    if (!ok) setPending(null)
+  }
+
+  function addAlias(alias: string) {
+    const trimmed = alias.trim()
+    if (!trimmed || saving) return
+    setDraft("")
+    if (aliases.includes(trimmed)) return
+    void commit([...aliases, trimmed])
+  }
+
+  function removeAlias(alias: string) {
+    if (saving) return
+    const next = aliases.filter((a) => a !== alias)
+    if (next.length === aliases.length) return
+    void commit(next)
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "," || e.key === "Enter") {
+      e.preventDefault()
+      addAlias(draft)
+    }
+  }
+
+  return (
+    <span className="flex min-w-0 flex-wrap items-center gap-1">
+      {aliases.map((alias) => (
+        <span
+          key={alias}
+          className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs text-foreground"
+        >
+          {alias}
+          <button
+            type="button"
+            onClick={() => removeAlias(alias)}
+            disabled={saving}
+            aria-label={`Remove ${alias}`}
+            title={`Remove ${alias}`}
+            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </span>
+      ))}
+      <input
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={handleKeyDown}
+        disabled={saving}
+        placeholder={aliases.length === 0 ? "Add alias…" : ""}
+        aria-label="Network alias"
+        spellCheck={false}
+        className="min-w-32 flex-1 bg-transparent py-0.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50"
+      />
+    </span>
+  )
+}
+
 /** Copy formats offered for a Postgres connection URL, in display order. */
 const POSTGRES_COPY_FORMATS: ReadonlyArray<{
   label: string
@@ -623,6 +717,12 @@ export function ResourceDrawer({
     }
   }
 
+  // Persists the chip editor's joined alias list through the shared config
+  // save path (PATCH custom_network_aliases, no Redeploy-needed marker).
+  const commitNetworkAlias = async (next: string) => {
+    return commitConfig({ kind: "network-alias", value: next })
+  }
+
   const fqdn = (resource as { fqdn?: string | null }).fqdn?.trim()
   const portsExposes = (
     resource as { ports_exposes?: string }
@@ -633,14 +733,6 @@ export function ResourceDrawer({
   const networkAliases = (
     resource as { custom_network_aliases?: string | null }
   ).custom_network_aliases?.trim()
-  // Network aliases are editable for applications only: Coolify's API accepts
-  // `custom_network_aliases` on PATCH /applications/{uuid} alone (the Service
-  // and Database models have no such field). The row shows even when empty so
-  // the user can add aliases from scratch.
-  const networkAliasConfig: EditableConfig | null =
-    type === "application"
-      ? { kind: "network-alias", value: networkAliases ?? "" }
-      : null
   // Coolify names the container after the resource UUID; the API does not
   // expose a separate container_name field.
   const containerName =
@@ -795,16 +887,14 @@ export function ResourceDrawer({
             </PropertyRow>
           )}
 
-          {type === "application" && networkAliasConfig ? (
+          {type === "application" ? (
             <PropertyRow icon={Box} label="Network aliases">
-              <div className="flex min-w-0 flex-col gap-1">
-                <EditableValue
-                  config={networkAliasConfig}
-                  label="Network aliases"
-                  saving={savingConfig}
-                  onCommit={commitConfig}
-                />
-              </div>
+              <NetworkAliasEditor
+                key={resource.uuid}
+                value={networkAliases ?? ""}
+                saving={savingConfig}
+                onCommit={commitNetworkAlias}
+              />
             </PropertyRow>
           ) : networkAliases ? (
             <PropertyRow icon={Box} label="Network aliases">

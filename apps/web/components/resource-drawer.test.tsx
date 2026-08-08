@@ -448,33 +448,113 @@ describe("DatabaseCopyMenu ARIA menu widget", () => {
   })
 })
 
-describe("network alias editing in the resource drawer", () => {
-  it("lets an application's network alias be edited in place", async () => {
+describe("network alias chips in the resource drawer", () => {
+  it("renders existing aliases as removable chips", () => {
+    renderDrawer(
+      application({ custom_network_aliases: "web.alias, api.alias" }),
+      "application"
+    )
+    expect(
+      screen.getByRole("button", { name: "Remove web.alias" })
+    ).toBeTruthy()
+    expect(
+      screen.getByRole("button", { name: "Remove api.alias" })
+    ).toBeTruthy()
+  })
+
+  it("adds a chip when a comma is typed and commits the joined list", async () => {
     const onConfigEdit = vi.fn().mockResolvedValue(true)
     renderDrawer(application({}), "application", () => {}, onConfigEdit)
 
-    // The current value renders as a click-to-edit button.
-    fireEvent.click(screen.getByText("web.alias"))
-    const input = screen.getByRole("textbox", { name: "Network aliases" })
+    const input = screen.getByRole("textbox", { name: "Network alias" })
     await act(async () => {
       fireEvent.change(input, { target: { value: "api.alias" } })
+      fireEvent.keyDown(input, { key: "," })
+      await Promise.resolve()
+    })
+
+    // The new chip appears next to the existing one and the save carries the
+    // full comma-joined list without the Redeploy-needed marker.
+    expect(
+      screen.getByRole("button", { name: "Remove api.alias" })
+    ).toBeTruthy()
+    expect(
+      screen.getByRole("button", { name: "Remove web.alias" })
+    ).toBeTruthy()
+    expect(onConfigEdit).toHaveBeenCalledWith(
+      "app-1",
+      { custom_network_aliases: "web.alias, api.alias" },
+      false
+    )
+  })
+
+  it("adds a chip on Enter as well", async () => {
+    const onConfigEdit = vi.fn().mockResolvedValue(true)
+    renderDrawer(
+      application({ custom_network_aliases: null }),
+      "application",
+      () => {},
+      onConfigEdit
+    )
+
+    const input = screen.getByRole("textbox", { name: "Network alias" })
+    await act(async () => {
+      fireEvent.change(input, { target: { value: "db.alias" } })
       fireEvent.keyDown(input, { key: "Enter" })
       await Promise.resolve()
     })
 
     expect(onConfigEdit).toHaveBeenCalledWith(
       "app-1",
-      { custom_network_aliases: "api.alias" },
-      // Network-alias edits must not raise the Redeploy-needed marker.
+      { custom_network_aliases: "db.alias" },
       false
     )
   })
 
-  it("shows the network alias row even when the application has none yet", () => {
-    renderDrawer(application({ custom_network_aliases: null }), "application")
-    // The "—" placeholder is a button that starts editing, so aliases can be
-    // added from scratch.
-    expect(screen.getByTitle("Click to edit Network aliases")).toBeTruthy()
+  it("removes a chip and commits the remaining list", async () => {
+    const onConfigEdit = vi.fn().mockResolvedValue(true)
+    renderDrawer(
+      application({ custom_network_aliases: "web.alias, api.alias" }),
+      "application",
+      () => {},
+      onConfigEdit
+    )
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Remove web.alias" }))
+      await Promise.resolve()
+    })
+
+    expect(onConfigEdit).toHaveBeenCalledWith(
+      "app-1",
+      { custom_network_aliases: "api.alias" },
+      false
+    )
+  })
+
+  it("reverts an optimistic chip change when the save fails", async () => {
+    const onConfigEdit = vi.fn().mockResolvedValue(false)
+    renderDrawer(
+      application({ custom_network_aliases: "web.alias" }),
+      "application",
+      () => {},
+      onConfigEdit
+    )
+
+    const input = screen.getByRole("textbox", { name: "Network alias" })
+    await act(async () => {
+      fireEvent.change(input, { target: { value: "api.alias" } })
+      fireEvent.keyDown(input, { key: "," })
+      await Promise.resolve()
+    })
+
+    // The optimistic chip disappears again when the save reports failure.
+    expect(
+      screen.queryByRole("button", { name: "Remove api.alias" })
+    ).toBeNull()
+    expect(
+      screen.getByRole("button", { name: "Remove web.alias" })
+    ).toBeTruthy()
   })
 
   it("offers no network alias editing for non-applications", () => {
