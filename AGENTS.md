@@ -2,7 +2,13 @@
 
 ## User Preferences
 
-- Always find @CLAUDE.local.md at the begining to read user preferences.
+- Always check for and read `CLAUDE.local.md` if it exists.
+
+## Behavioral Guideliness
+
+Think about what you are about to do:
+
+* **Before Implement:** Review all guideliness in `docs/guideliness/`.
 
 ## Agent skills
 
@@ -20,14 +26,4 @@ Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/age
 
 ## Available Harness
 
-### Prism
-
-Prims allows you to run a mock server for fast testing. Run example:
-
-```
-prism mock coolify-openapi-v4.x.yaml --port 13000 --cors
-```
-
-**Important:** Always stop the mock server after finishing tests.
-
-**Note:** `prism mock -h` to see another options.
+- When you need a mock server to test against REST APIs from JSON or YAML specifications, refer to @PRISM.md
