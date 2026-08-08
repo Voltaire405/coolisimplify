@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest"
-import { databaseConnectionUrls, postgresUrlFormats } from "./database-detail"
+import {
+  databaseConnectionUrls,
+  postgresUrlFormats,
+  type PostgresUrlFormats,
+} from "./database-detail"
 
 describe("databaseConnectionUrls", () => {
   it("labels the type from the image and exposes both URLs", () => {
@@ -150,5 +154,35 @@ describe("postgresUrlFormats", () => {
     expect(formats.jdbc).toBeNull()
     expect(formats.uri).toBeNull()
     expect(formats.shortUri).toBeNull()
+  })
+
+  it.each([
+    "postgres://user:p%ss@abc123:5432/postgres",
+    "postgres://u%zz:p%zz@abc123:5432/postgres",
+    "postgres://user:p%ss@abc123:5432/postgres?sslmode=require",
+  ])(
+    "does not throw on a malformed percent-escape in credentials (%s)",
+    (url) => {
+      let formats: PostgresUrlFormats | undefined
+      expect(() => {
+        formats = postgresUrlFormats(url)
+      }).not.toThrow()
+      // The malformed escape degrades gracefully: jdbc is either a usable
+      // string (with the raw % re-encoded) or null, never a throw.
+      expect(formats!.jdbc === null || typeof formats!.jdbc === "string").toBe(
+        true
+      )
+    }
+  )
+
+  it("re-encodes a raw % in credentials so jdbc stays a usable URI", () => {
+    const formats = postgresUrlFormats(
+      "postgres://user:p%ss@abc123:5432/postgres"
+    )
+    // safeDecode falls back to the raw "p%ss", which rawurlencode turns into
+    // "p%25ss", so the jdbc output remains a valid URI with the literal '%'.
+    expect(formats.jdbc).toBe(
+      "jdbc:postgresql://abc123:5432/postgres?user=user&password=p%25ss"
+    )
   })
 })

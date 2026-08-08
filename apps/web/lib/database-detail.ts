@@ -44,6 +44,21 @@ function rawurlencode(value: string): string {
 }
 
 /**
+ * Decodes a percent-encoded credential segment, falling back to the raw value
+ * when it contains a literal `%` that is not a valid percent-escape. The URL
+ * API keeps the userinfo raw (it does not validate escapes), so a value like
+ * `p%ss` would otherwise make `decodeURIComponent` throw and crash any consumer
+ * that renders this module. This helper guarantees decoding never throws.
+ */
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+/**
  * Parses a Postgres URL, or null when the input is blank, unparseable, or uses
  * a non-Postgres scheme. The URL API keeps the userinfo percent-encoded and the
  * query verbatim, so those survive every transformation below.
@@ -76,9 +91,9 @@ function buildUri(url: URL, scheme: string): string {
 function buildJdbc(url: URL): string {
   const head: string[] = []
   if (url.username) {
-    head.push(`user=${rawurlencode(decodeURIComponent(url.username))}`)
+    head.push(`user=${rawurlencode(safeDecode(url.username))}`)
     if (url.password) {
-      head.push(`password=${rawurlencode(decodeURIComponent(url.password))}`)
+      head.push(`password=${rawurlencode(safeDecode(url.password))}`)
     }
   }
   // Keep the raw search verbatim except for user/password, which the userinfo
