@@ -66,18 +66,18 @@ describe("databaseConnectionUrls", () => {
 describe("postgresUrlFormats", () => {
   const base = "postgres://user:pass@abc123:5432/postgres"
 
-  it("converts a short postgres:// URL into the long postgresql:// uri", () => {
+  it("keeps `uri` as the short postgres:// scheme and `uriLong` as the long postgresql:// scheme", () => {
     const formats = postgresUrlFormats(base)
     expect(formats.original).toBe(base)
-    expect(formats.uri).toBe("postgresql://user:pass@abc123:5432/postgres")
-    expect(formats.shortUri).toBe(base)
+    expect(formats.uri).toBe(base)
+    expect(formats.uriLong).toBe("postgresql://user:pass@abc123:5432/postgres")
   })
 
-  it("converts a long postgresql:// URL into the short postgres:// shortUri", () => {
+  it("converts a long postgresql:// URL into the short postgres:// uri", () => {
     const long = "postgresql://user:pass@abc123:5432/postgres"
     const formats = postgresUrlFormats(long)
-    expect(formats.uri).toBe(long)
-    expect(formats.shortUri).toBe("postgres://user:pass@abc123:5432/postgres")
+    expect(formats.uriLong).toBe(long)
+    expect(formats.uri).toBe("postgres://user:pass@abc123:5432/postgres")
     expect(formats.original).toBe(long)
   })
 
@@ -97,10 +97,10 @@ describe("postgresUrlFormats", () => {
     const url =
       "postgres://user:pass@abc123:5432/postgres?sslmode=verify-full&sslrootcert=/etc/ssl/certs/coolify-ca.crt"
     const formats = postgresUrlFormats(url)
-    expect(formats.uri).toBe(
+    expect(formats.uriLong).toBe(
       "postgresql://user:pass@abc123:5432/postgres?sslmode=verify-full&sslrootcert=/etc/ssl/certs/coolify-ca.crt"
     )
-    expect(formats.shortUri).toBe(
+    expect(formats.uri).toBe(
       "postgres://user:pass@abc123:5432/postgres?sslmode=verify-full&sslrootcert=/etc/ssl/certs/coolify-ca.crt"
     )
     expect(formats.jdbc).toBe(
@@ -111,7 +111,7 @@ describe("postgresUrlFormats", () => {
   it("decodes then re-encodes percent-encoded credentials", () => {
     const url = "postgres://my%40user:p%40ss%2Fword@abc123:5432/postgres"
     const formats = postgresUrlFormats(url)
-    expect(formats.uri).toBe(
+    expect(formats.uriLong).toBe(
       "postgresql://my%40user:p%40ss%2Fword@abc123:5432/postgres"
     )
     expect(formats.jdbc).toBe(
@@ -134,7 +134,7 @@ describe("postgresUrlFormats", () => {
       original: "not a url : : //",
       jdbc: null,
       uri: null,
-      shortUri: null,
+      uriLong: null,
     })
   })
 
@@ -144,7 +144,7 @@ describe("postgresUrlFormats", () => {
       original: "mysql://user:pass@db:3306/things",
       jdbc: null,
       uri: null,
-      shortUri: null,
+      uriLong: null,
     })
   })
 
@@ -153,7 +153,7 @@ describe("postgresUrlFormats", () => {
     expect(formats.original).toBe("")
     expect(formats.jdbc).toBeNull()
     expect(formats.uri).toBeNull()
-    expect(formats.shortUri).toBeNull()
+    expect(formats.uriLong).toBeNull()
   })
 
   it.each([

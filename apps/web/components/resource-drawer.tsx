@@ -145,8 +145,8 @@ const POSTGRES_COPY_FORMATS: ReadonlyArray<{
 }> = [
   { label: "Original", key: "original" },
   { label: "JDBC", key: "jdbc" },
-  { label: "URI", key: "uri" },
-  { label: "URI corta", key: "shortUri" },
+  { label: "URI", key: "uriLong" },
+  { label: "URI corta", key: "uri" },
 ]
 
 /**

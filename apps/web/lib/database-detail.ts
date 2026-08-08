@@ -17,19 +17,26 @@ export const DATABASE_TYPE_LABEL: Record<DatabaseType, string> = {
 }
 
 /**
- * The copy formats offered for a Postgres connection URL. `uri` uses the long
- * `postgresql://` scheme, `short-uri` the short `postgres://` scheme, `jdbc`
- * moves credentials into `user`/`password` query params, and `original` is the
- * URL byte-for-byte as Coolify provided it.
+ * The copy formats offered for a Postgres connection URL. This keeps the
+ * original spec's naming: `uri` is the short `postgres://` scheme, `uri-long`
+ * the long `postgresql://` scheme, `jdbc` moves credentials into
+ * `user`/`password` query params, and `original` is the URL byte-for-byte as
+ * Coolify provided it.
+ *
+ * NOTE on labels: the Details tab labels these "URI corta" for the short form
+ * and "URI" for the long form, so the UI label and the `uri` key are inverted
+ * by design ("corta" = Spanish for "short"). Read `uri` as the SHORT scheme.
  */
-export type PostgresUrlFormat = "original" | "jdbc" | "uri" | "short-uri"
+export type PostgresUrlFormat = "original" | "jdbc" | "uri" | "uri-long"
 
 /** Every copyable rendering of a Postgres URL for one input string. */
 export interface PostgresUrlFormats {
   original: string
   jdbc: string | null
+  /** The short `postgres://` scheme (UI label "URI corta"). */
   uri: string | null
-  shortUri: string | null
+  /** The long `postgresql://` scheme (UI label "URI"). */
+  uriLong: string | null
 }
 
 /** Schemes recognised as Postgres so other database URLs pass through untouched. */
@@ -116,12 +123,12 @@ function buildJdbc(url: URL): string {
 export function postgresUrlFormats(url: string): PostgresUrlFormats {
   const parsed = parsePostgresUrl(url)
   if (!parsed) {
-    return { original: url, jdbc: null, uri: null, shortUri: null }
+    return { original: url, jdbc: null, uri: null, uriLong: null }
   }
   return {
     original: url,
-    uri: buildUri(parsed, "postgresql"),
-    shortUri: buildUri(parsed, "postgres"),
+    uri: buildUri(parsed, "postgres"),
+    uriLong: buildUri(parsed, "postgresql"),
     jdbc: buildJdbc(parsed),
   }
 }
